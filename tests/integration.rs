@@ -4,9 +4,8 @@
 //! They also provide deterministic test vectors for cross-language validation.
 
 use ats_sdk::{
-    generate_commitment, generate_creator_proof, hash_media, verify_commitment,
-    verify_creator_inclusion, AtsError, AtsInput, Creator, Hash, Role, MERKLE_DEPTH,
-    PROTOCOL_VERSION,
+    AtsError, AtsInput, Creator, Hash, MERKLE_DEPTH, PROTOCOL_VERSION, Role, generate_commitment,
+    generate_creator_proof, hash_media, verify_commitment, verify_creator_inclusion,
 };
 
 // ===== Helpers =====

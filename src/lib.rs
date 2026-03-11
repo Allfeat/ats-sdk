@@ -54,8 +54,8 @@ pub use commitment::{
 };
 pub use error::AtsError;
 pub use hash::Hash;
-pub use merkle::{MerkleProof, MerkleTree, MERKLE_DEPTH};
+pub use merkle::{MERKLE_DEPTH, MerkleProof, MerkleTree};
 pub use model::{
-    AtsInput, AtsProof, Creator, OnChainCommitment, Role, MAX_CREATORS, PROTOCOL_VERSION,
+    AtsInput, AtsProof, Creator, MAX_CREATORS, OnChainCommitment, PROTOCOL_VERSION, Role,
 };
 pub use validate::validate_input;

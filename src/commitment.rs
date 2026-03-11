@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 use crate::canonical::{canonical_encode_creator, canonical_encode_title};
 use crate::error::AtsError;
 use crate::hash::Hash;
-use crate::merkle::{MerkleProof, MerkleTree, MERKLE_DEPTH};
+use crate::merkle::{MERKLE_DEPTH, MerkleProof, MerkleTree};
 use crate::model::{AtsInput, AtsProof, Creator, OnChainCommitment, PROTOCOL_VERSION};
 use crate::validate::validate_input;
 
