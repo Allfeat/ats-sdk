@@ -1,6 +1,6 @@
 [package]
 name = "pallet-ats"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/Allfeat/ats-sdk"
@@ -12,6 +12,8 @@ scale-info = { version = "2.11", default-features = false, features = ["derive"]
 frame-support = { version = "45.0", default-features = false }
 frame-system = { version = "45.0", default-features = false }
 frame-benchmarking = { version = "45.0", default-features = false, optional = true }
+sp-runtime = { version = "45.0", default-features = false }
+log = { version = "0.4", default-features = false }
 
 [dev-dependencies]
 sp-io = { version = "44.0", default-features = false, features = ["std"] }
@@ -26,13 +28,16 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"frame-benchmarking?/std",
+	"sp-runtime/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system/runtime-benchmarks",
+	"sp-runtime/runtime-benchmarks",
 ]
 try-runtime = [
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
+	"sp-runtime/try-runtime",
 ]

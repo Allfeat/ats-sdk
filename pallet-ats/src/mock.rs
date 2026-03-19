@@ -1,10 +1,61 @@
 use crate as pallet_ats;
+use alloc::vec::Vec;
+use codec::{Decode, DecodeWithMemTracking, Encode};
 use frame_support::{construct_runtime, derive_impl, parameter_types};
+use scale_info::TypeInfo;
 use sp_runtime::BuildStorage;
+use sp_runtime::traits::{IdentifyAccount, Verify};
 
 pub const ALICE: u64 = 1;
 pub const BOB: u64 = 2;
 pub const CHARLIE: u64 = 3;
+
+// ── Test signature types ───────────────────────────────────────────────────
+
+/// Test signer that maps directly to a `u64` account ID.
+#[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
+pub struct TestSigner(pub u64);
+
+impl IdentifyAccount for TestSigner {
+    type AccountId = u64;
+
+    fn into_account(self) -> u64 {
+        self.0
+    }
+}
+
+/// Test signature that validates both the signer identity **and** the signed payload.
+///
+/// Unlike the previous implementation that ignored message content, this version
+/// ensures the signature is bound to the exact payload bytes. This catches:
+/// - Payload tampering (e.g., modified commitment after signing)
+/// - Cross-action replay (e.g., Create signature used for Update)
+/// - Operator mismatch in payload vs caller
+#[derive(Clone, PartialEq, Eq, Debug, Encode, Decode, DecodeWithMemTracking, TypeInfo)]
+pub struct TestSignature {
+    /// The account ID of the signer.
+    pub signer: u64,
+    /// The exact SCALE-encoded payload bytes that were "signed".
+    pub payload: Vec<u8>,
+}
+
+impl Verify for TestSignature {
+    type Signer = TestSigner;
+
+    fn verify<L: sp_runtime::traits::Lazy<[u8]>>(&self, mut msg: L, signer: &u64) -> bool {
+        self.signer == *signer && self.payload == msg.get()
+    }
+}
+
+/// Create a test signature for a SCALE-encodable payload.
+pub fn sign(signer: u64, payload: &impl Encode) -> TestSignature {
+    TestSignature {
+        signer,
+        payload: payload.encode(),
+    }
+}
+
+// ── Runtime construction ───────────────────────────────────────────────────
 
 construct_runtime!(
     pub enum Test {
@@ -38,6 +89,8 @@ parameter_types! {
 impl pallet_ats::Config for Test {
     type RuntimeHoldReason = RuntimeHoldReason;
     type Currency = Balances;
+    type OffchainSignature = TestSignature;
+    type Signer = TestSigner;
     type BaseDeposit = BaseDeposit;
     type VersionDeposit = VersionDeposit;
     type MaxVersionsPerAts = MaxVersionsPerAts;

@@ -1,9 +1,55 @@
 use crate::mock::*;
 use crate::*;
+use codec::Encode;
+use frame_support::pallet_prelude::StorageVersion;
+use frame_support::traits::GetStorageVersion;
 use frame_support::{assert_noop, assert_ok};
 
 fn commitment(byte: u8) -> [u8; 32] {
     [byte; 32]
+}
+
+// ── Payload builder helpers ────────────────────────────────────────────────
+
+fn create_payload(
+    commitment: [u8; 32],
+    protocol_version: u8,
+    operator: u64,
+    nonce: u64,
+) -> CreateOnBehalfPayload<u64> {
+    CreateOnBehalfPayload {
+        action: OnBehalfAction::Create,
+        commitment,
+        protocol_version,
+        operator,
+        nonce,
+    }
+}
+
+fn update_payload(
+    ats_id: u64,
+    commitment: [u8; 32],
+    protocol_version: u8,
+    operator: u64,
+    nonce: u64,
+) -> UpdateOnBehalfPayload<u64> {
+    UpdateOnBehalfPayload {
+        action: OnBehalfAction::Update,
+        ats_id,
+        commitment,
+        protocol_version,
+        operator,
+        nonce,
+    }
+}
+
+fn revoke_payload(ats_id: u64, operator: u64, nonce: u64) -> RevokeOnBehalfPayload<u64> {
+    RevokeOnBehalfPayload {
+        action: OnBehalfAction::Revoke,
+        ats_id,
+        operator,
+        nonce,
+    }
 }
 
 // ── create ──────────────────────────────────────────────────────────────────
@@ -16,6 +62,7 @@ fn create_works() {
         // Check ATS record
         let record = AtsRegistry::<Test>::get(0).expect("ATS should exist");
         assert_eq!(record.owner, ALICE);
+        assert_eq!(record.depositor, ALICE);
         assert_eq!(record.version_count, 1);
         assert_eq!(record.base_deposit, 100);
 
@@ -23,6 +70,7 @@ fn create_works() {
         let version = AtsVersions::<Test>::get(0, 0).expect("version should exist");
         assert_eq!(version.commitment, commitment(1));
         assert_eq!(version.protocol_version, 1);
+        assert_eq!(version.depositor, ALICE);
         assert_eq!(version.deposit, 10);
 
         // Check owner index
@@ -39,6 +87,7 @@ fn create_works() {
                 owner: ALICE,
                 commitment: commitment(1),
                 protocol_version: 1,
+                operator: None,
             }
             .into(),
         );
@@ -98,6 +147,7 @@ fn update_works() {
 
         let v1 = AtsVersions::<Test>::get(0, 1).unwrap();
         assert_eq!(v1.commitment, commitment(2));
+        assert_eq!(v1.depositor, ALICE);
 
         System::assert_last_event(
             Event::<Test>::AtsUpdated {
@@ -105,6 +155,7 @@ fn update_works() {
                 version: 1,
                 commitment: commitment(2),
                 protocol_version: 1,
+                operator: None,
             }
             .into(),
         );
@@ -212,6 +263,7 @@ fn revoke_single_version() {
             Event::<Test>::AtsRevoked {
                 ats_id: 0,
                 owner: ALICE,
+                operator: None,
             }
             .into(),
         );
@@ -360,5 +412,1024 @@ fn create_and_immediately_revoke() {
         assert_ok!(Ats::revoke(RuntimeOrigin::signed(ALICE), 0));
         assert_eq!(Balances::free_balance(ALICE), balance_before);
         assert!(AtsRegistry::<Test>::get(0).is_none());
+    });
+}
+
+// ── on-behalf: create ──────────────────────────────────────────────────────
+
+#[test]
+fn create_on_behalf_works() {
+    new_test_ext().execute_with(|| {
+        let alice_bal_before = Balances::free_balance(ALICE);
+        let bob_bal_before = Balances::free_balance(BOB);
+
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // ATS record: owner=ALICE, depositor=BOB
+        let record = AtsRegistry::<Test>::get(0).expect("ATS should exist");
+        assert_eq!(record.owner, ALICE);
+        assert_eq!(record.depositor, BOB);
+
+        // Version record: depositor=BOB
+        let version = AtsVersions::<Test>::get(0, 0).expect("version should exist");
+        assert_eq!(version.depositor, BOB);
+
+        // Owner index tracks ALICE
+        assert_eq!(OwnerIndex::<Test>::get(ALICE).into_inner(), vec![0]);
+
+        // BOB paid deposits (100 base + 10 version = 110)
+        assert_eq!(Balances::free_balance(BOB), bob_bal_before - 110);
+        // ALICE balance unchanged
+        assert_eq!(Balances::free_balance(ALICE), alice_bal_before);
+
+        // Event includes operator
+        System::assert_last_event(
+            Event::<Test>::AtsCreated {
+                ats_id: 0,
+                owner: ALICE,
+                commitment: commitment(1),
+                protocol_version: 1,
+                operator: Some(BOB),
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_invalid_signature() {
+    new_test_ext().execute_with(|| {
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                commitment(1),
+                1,
+                0,
+                sign(BOB, &payload), // wrong signer — should be ALICE
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_invalid_nonce() {
+    new_test_ext().execute_with(|| {
+        let payload = create_payload(commitment(1), 1, BOB, 1);
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                commitment(1),
+                1,
+                1, // wrong nonce — should be 0
+                sign(ALICE, &payload),
+            ),
+            Error::<Test>::InvalidNonce
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_nonce_increments() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(OnBehalfNonce::<Test>::get(ALICE), 0);
+
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        assert_eq!(OnBehalfNonce::<Test>::get(ALICE), 1);
+    });
+}
+
+#[test]
+fn create_on_behalf_replay_fails() {
+    new_test_ext().execute_with(|| {
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // Replay with same nonce fails
+        let payload2 = create_payload(commitment(2), 1, BOB, 0);
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                commitment(2),
+                1,
+                0, // stale nonce
+                sign(ALICE, &payload2),
+            ),
+            Error::<Test>::InvalidNonce
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_operator_insufficient_balance() {
+    new_test_ext().execute_with(|| {
+        // Operator 999 has no funds
+        let payload = create_payload(commitment(1), 1, 999, 0);
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(999),
+                ALICE,
+                commitment(1),
+                1,
+                0,
+                sign(ALICE, &payload),
+            ),
+            sp_runtime::TokenError::FundsUnavailable
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_respects_max_ats_per_account() {
+    new_test_ext().execute_with(|| {
+        // Fill up ALICE's quota with direct creates
+        for i in 0..5u8 {
+            assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(i), 1));
+        }
+
+        // On-behalf create should also respect ALICE's limit
+        let payload = create_payload(commitment(5), 1, BOB, 0);
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                commitment(5),
+                1,
+                0,
+                sign(ALICE, &payload),
+            ),
+            Error::<Test>::MaxAtsPerAccountReached
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_deposits_held_from_operator() {
+    new_test_ext().execute_with(|| {
+        let bob_before = Balances::free_balance(BOB);
+        let alice_before = Balances::free_balance(ALICE);
+
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // BOB's balance decreased by base + version deposit
+        assert_eq!(Balances::free_balance(BOB), bob_before - 110);
+        // ALICE's balance unchanged
+        assert_eq!(Balances::free_balance(ALICE), alice_before);
+    });
+}
+
+// ── on-behalf: update ──────────────────────────────────────────────────────
+
+#[test]
+fn update_on_behalf_works() {
+    new_test_ext().execute_with(|| {
+        // Create directly by ALICE
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        // Update on behalf by BOB
+        let payload = update_payload(0, commitment(2), 1, BOB, 0);
+        assert_ok!(Ats::update_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            commitment(2),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        let record = AtsRegistry::<Test>::get(0).unwrap();
+        assert_eq!(record.version_count, 2);
+
+        let v1 = AtsVersions::<Test>::get(0, 1).unwrap();
+        assert_eq!(v1.commitment, commitment(2));
+        assert_eq!(v1.depositor, BOB);
+
+        System::assert_last_event(
+            Event::<Test>::AtsUpdated {
+                ats_id: 0,
+                version: 1,
+                commitment: commitment(2),
+                protocol_version: 1,
+                operator: Some(BOB),
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn update_on_behalf_not_owner() {
+    new_test_ext().execute_with(|| {
+        // Create by ALICE
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        // BOB tries to update as if CHARLIE is the owner — should fail
+        let payload = update_payload(0, commitment(2), 1, BOB, 0);
+        assert_noop!(
+            Ats::update_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                CHARLIE,
+                0,
+                commitment(2),
+                1,
+                0,
+                sign(CHARLIE, &payload),
+            ),
+            Error::<Test>::NotOwner
+        );
+    });
+}
+
+#[test]
+fn update_on_behalf_invalid_signature() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        let payload = update_payload(0, commitment(2), 1, BOB, 0);
+        assert_noop!(
+            Ats::update_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                0,
+                commitment(2),
+                1,
+                0,
+                sign(BOB, &payload), // wrong signer
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn update_on_behalf_deposits_from_operator() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        let bob_before = Balances::free_balance(BOB);
+        let alice_before = Balances::free_balance(ALICE);
+
+        let payload = update_payload(0, commitment(2), 1, BOB, 0);
+        assert_ok!(Ats::update_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            commitment(2),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // BOB paid version deposit
+        assert_eq!(Balances::free_balance(BOB), bob_before - 10);
+        // ALICE unchanged (her previous deposits still held but not affected)
+        assert_eq!(Balances::free_balance(ALICE), alice_before);
+    });
+}
+
+// ── on-behalf: revoke ──────────────────────────────────────────────────────
+
+#[test]
+fn revoke_on_behalf_works() {
+    new_test_ext().execute_with(|| {
+        let bob_before = Balances::free_balance(BOB);
+
+        // Create on behalf: BOB pays deposits
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // Revoke on behalf
+        let payload = revoke_payload(0, BOB, 1);
+        assert_ok!(Ats::revoke_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            1, // nonce incremented from create
+            sign(ALICE, &payload),
+        ));
+
+        // ATS gone
+        assert!(AtsRegistry::<Test>::get(0).is_none());
+
+        // BOB gets deposits back
+        assert_eq!(Balances::free_balance(BOB), bob_before);
+
+        System::assert_last_event(
+            Event::<Test>::AtsRevoked {
+                ats_id: 0,
+                owner: ALICE,
+                operator: Some(BOB),
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn revoke_on_behalf_mixed_depositors() {
+    new_test_ext().execute_with(|| {
+        let alice_before = Balances::free_balance(ALICE);
+        let bob_before = Balances::free_balance(BOB);
+
+        // ALICE creates directly (depositor=ALICE for base + v0)
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        // BOB updates on behalf (depositor=BOB for v1)
+        let payload = update_payload(0, commitment(2), 1, BOB, 0);
+        assert_ok!(Ats::update_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            commitment(2),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // Revoke on behalf
+        let payload = revoke_payload(0, BOB, 1);
+        assert_ok!(Ats::revoke_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            1,
+            sign(ALICE, &payload),
+        ));
+
+        // ALICE gets her deposits back (base + v0 version)
+        assert_eq!(Balances::free_balance(ALICE), alice_before);
+        // BOB gets his v1 deposit back
+        assert_eq!(Balances::free_balance(BOB), bob_before);
+    });
+}
+
+#[test]
+fn revoke_on_behalf_invalid_signature() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        let payload = revoke_payload(0, BOB, 0);
+        assert_noop!(
+            Ats::revoke_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                0,
+                0,
+                sign(BOB, &payload), // wrong signer
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+// ── on-behalf: owner retains direct rights ─────────────────────────────────
+
+#[test]
+fn owner_can_update_after_on_behalf_create() {
+    new_test_ext().execute_with(|| {
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // ALICE can still update directly
+        assert_ok!(Ats::update(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            commitment(2),
+            1
+        ));
+
+        let v1 = AtsVersions::<Test>::get(0, 1).unwrap();
+        assert_eq!(v1.depositor, ALICE);
+    });
+}
+
+#[test]
+fn owner_can_revoke_after_on_behalf_create() {
+    new_test_ext().execute_with(|| {
+        let bob_before = Balances::free_balance(BOB);
+
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // ALICE revokes directly — BOB still gets deposits back
+        assert_ok!(Ats::revoke(RuntimeOrigin::signed(ALICE), 0));
+
+        assert_eq!(Balances::free_balance(BOB), bob_before);
+    });
+}
+
+// ── on-behalf: nonce behavior ──────────────────────────────────────────────
+
+#[test]
+fn nonce_is_per_owner() {
+    new_test_ext().execute_with(|| {
+        let payload_alice = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload_alice),
+        ));
+
+        let payload_charlie = create_payload(commitment(2), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            CHARLIE,
+            commitment(2),
+            1,
+            0,
+            sign(CHARLIE, &payload_charlie),
+        ));
+
+        assert_eq!(OnBehalfNonce::<Test>::get(ALICE), 1);
+        assert_eq!(OnBehalfNonce::<Test>::get(CHARLIE), 1);
+    });
+}
+
+#[test]
+fn nonce_survives_revoke() {
+    new_test_ext().execute_with(|| {
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        let payload = revoke_payload(0, BOB, 1);
+        assert_ok!(Ats::revoke_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            1,
+            sign(ALICE, &payload),
+        ));
+
+        // Nonce is 2, not reset
+        assert_eq!(OnBehalfNonce::<Test>::get(ALICE), 2);
+
+        // Next create must use nonce 2
+        let payload = create_payload(commitment(2), 1, BOB, 2);
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(2),
+            1,
+            2,
+            sign(ALICE, &payload),
+        ));
+    });
+}
+
+// ── on-behalf: payload stability ───────────────────────────────────────────
+// These tests verify that the signature is cryptographically bound to the
+// exact payload content. A signature valid for one set of parameters MUST
+// fail if any parameter is changed.
+
+#[test]
+fn create_on_behalf_tampered_commitment_fails() {
+    new_test_ext().execute_with(|| {
+        // Sign payload with commitment(1)
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        let sig = sign(ALICE, &payload);
+
+        // Submit with commitment(2) — signature should not match
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                commitment(2), // tampered
+                1,
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_tampered_protocol_version_fails() {
+    new_test_ext().execute_with(|| {
+        let payload = create_payload(commitment(1), 1, BOB, 0);
+        let sig = sign(ALICE, &payload);
+
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                commitment(1),
+                2, // tampered protocol version
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_wrong_operator_in_payload_fails() {
+    new_test_ext().execute_with(|| {
+        // ALICE signs a payload authorizing CHARLIE as operator
+        let payload = create_payload(commitment(1), 1, CHARLIE, 0);
+        let sig = sign(ALICE, &payload);
+
+        // BOB submits — operator mismatch in payload vs actual caller
+        assert_noop!(
+            Ats::create_on_behalf(
+                RuntimeOrigin::signed(BOB), // not CHARLIE
+                ALICE,
+                commitment(1),
+                1,
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn create_on_behalf_cross_action_replay_fails() {
+    new_test_ext().execute_with(|| {
+        // ALICE signs a Create payload
+        let create_pl = create_payload(commitment(1), 1, BOB, 0);
+        let sig = sign(ALICE, &create_pl);
+
+        // First create succeeds
+        assert_ok!(Ats::create_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            commitment(1),
+            1,
+            0,
+            sig,
+        ));
+
+        // Try to use a Create-shaped signature for an Update call
+        // The pallet rebuilds an UpdateOnBehalfPayload internally, so the bytes differ
+        let fake_update_sig = sign(ALICE, &create_payload(commitment(2), 1, BOB, 1));
+        assert_noop!(
+            Ats::update_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                0,
+                commitment(2),
+                1,
+                1,
+                fake_update_sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn update_on_behalf_tampered_commitment_fails() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        // Sign for commitment(2)
+        let payload = update_payload(0, commitment(2), 1, BOB, 0);
+        let sig = sign(ALICE, &payload);
+
+        // Submit with commitment(3) — tampered
+        assert_noop!(
+            Ats::update_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                0,
+                commitment(3), // tampered
+                1,
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn update_on_behalf_tampered_ats_id_fails() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(2), 1));
+
+        // Sign for ats_id=0
+        let payload = update_payload(0, commitment(3), 1, BOB, 0);
+        let sig = sign(ALICE, &payload);
+
+        // Submit for ats_id=1 — tampered
+        assert_noop!(
+            Ats::update_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                1, // tampered ats_id
+                commitment(3),
+                1,
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn revoke_on_behalf_tampered_ats_id_fails() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(2), 1));
+
+        // Sign for ats_id=0
+        let payload = revoke_payload(0, BOB, 0);
+        let sig = sign(ALICE, &payload);
+
+        // Submit for ats_id=1 — tampered
+        assert_noop!(
+            Ats::revoke_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                1, // tampered
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+#[test]
+fn revoke_on_behalf_cross_action_replay_fails() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(1), 1));
+
+        // Sign a Revoke payload
+        let revoke_pl = revoke_payload(0, BOB, 0);
+        let sig = sign(ALICE, &revoke_pl);
+
+        // Try to use it for an Update — action field differs
+        assert_noop!(
+            Ats::update_on_behalf(
+                RuntimeOrigin::signed(BOB),
+                ALICE,
+                0,
+                commitment(2),
+                1,
+                0,
+                sig,
+            ),
+            Error::<Test>::InvalidSignature
+        );
+    });
+}
+
+// ── Payload encoding determinism ───────────────────────────────────────────
+
+#[test]
+fn payload_encoding_is_deterministic() {
+    // Same inputs must always produce the same encoded bytes
+    let p1 = create_payload(commitment(1), 1, BOB, 0);
+    let p2 = create_payload(commitment(1), 1, BOB, 0);
+    assert_eq!(p1.encode(), p2.encode());
+
+    // Different inputs must produce different encoded bytes
+    let p3 = create_payload(commitment(2), 1, BOB, 0);
+    assert_ne!(p1.encode(), p3.encode());
+
+    let p4 = create_payload(commitment(1), 2, BOB, 0);
+    assert_ne!(p1.encode(), p4.encode());
+
+    let p5 = create_payload(commitment(1), 1, CHARLIE, 0);
+    assert_ne!(p1.encode(), p5.encode());
+
+    let p6 = create_payload(commitment(1), 1, BOB, 1);
+    assert_ne!(p1.encode(), p6.encode());
+}
+
+#[test]
+fn different_action_types_produce_different_encodings() {
+    // Create and Update payloads with overlapping fields must differ
+    // due to the OnBehalfAction discriminant
+    let create_bytes = CreateOnBehalfPayload {
+        action: OnBehalfAction::Create,
+        commitment: commitment(1),
+        protocol_version: 1,
+        operator: BOB,
+        nonce: 0,
+    }
+    .encode();
+
+    let update_bytes = UpdateOnBehalfPayload {
+        action: OnBehalfAction::Update,
+        ats_id: 0,
+        commitment: commitment(1),
+        protocol_version: 1,
+        operator: BOB,
+        nonce: 0,
+    }
+    .encode();
+
+    let revoke_bytes = RevokeOnBehalfPayload {
+        action: OnBehalfAction::Revoke,
+        ats_id: 0,
+        operator: BOB,
+        nonce: 0,
+    }
+    .encode();
+
+    assert_ne!(create_bytes, update_bytes);
+    assert_ne!(create_bytes, revoke_bytes);
+    assert_ne!(update_bytes, revoke_bytes);
+}
+
+// ── Cross-language test vectors ────────────────────────────────────────────
+// These test vectors document the exact SCALE-encoded byte layout of each
+// payload type. External implementations (TypeScript, Python, mobile) MUST
+// produce these exact bytes for signature verification to succeed.
+//
+// SCALE encoding rules used here (all integers are little-endian):
+//   - enum variant: single byte index (Create=0x00, Update=0x01, Revoke=0x02)
+//   - [u8; 32]: 32 raw bytes, no length prefix
+//   - u8: 1 byte
+//   - u64: 8 bytes LE
+//   - AccountId (u64 in test runtime, 32 bytes on Allfeat mainnet): encoded as
+//     the runtime's native AccountId SCALE encoding
+//   - struct fields are concatenated in declaration order, no separators
+
+#[test]
+fn test_vector_create_payload() {
+    // CreateOnBehalfPayload {
+    //   action: Create (0x00),
+    //   commitment: [0xab; 32],
+    //   protocol_version: 1 (0x01),
+    //   operator: 42u64 (0x2a00000000000000),
+    //   nonce: 7u64 (0x0700000000000000),
+    // }
+    let payload = CreateOnBehalfPayload {
+        action: OnBehalfAction::Create,
+        commitment: [0xab; 32],
+        protocol_version: 1,
+        operator: 42u64,
+        nonce: 7,
+    };
+
+    let bytes = payload.encode();
+    let hex = hex_encode(&bytes);
+
+    // Field breakdown:
+    // 00                                                               action = Create
+    // abababababababababababababababababababababababababababababababab     commitment (32 bytes)
+    // 01                                                               protocol_version
+    // 2a00000000000000                                                 operator = 42 (u64 LE)
+    // 0700000000000000                                                 nonce = 7 (u64 LE)
+    let expected = concat!(
+        "00",                                                               // action
+        "abababababababababababababababababababababababababababababababab", // commitment
+        "01",                                                               // protocol_version
+        "2a00000000000000",                                                 // operator
+        "0700000000000000",                                                 // nonce
+    );
+    assert_eq!(hex, expected, "CreateOnBehalfPayload encoding mismatch");
+    assert_eq!(bytes.len(), 1 + 32 + 1 + 8 + 8, "unexpected payload length");
+}
+
+#[test]
+fn test_vector_update_payload() {
+    // UpdateOnBehalfPayload {
+    //   action: Update (0x01),
+    //   ats_id: 5u64 (0x0500000000000000),
+    //   commitment: [0xcd; 32],
+    //   protocol_version: 2 (0x02),
+    //   operator: 99u64 (0x6300000000000000),
+    //   nonce: 3u64 (0x0300000000000000),
+    // }
+    let payload = UpdateOnBehalfPayload {
+        action: OnBehalfAction::Update,
+        ats_id: 5,
+        commitment: [0xcd; 32],
+        protocol_version: 2,
+        operator: 99u64,
+        nonce: 3,
+    };
+
+    let bytes = payload.encode();
+    let hex = hex_encode(&bytes);
+
+    let expected = concat!(
+        "01",                                                               // action
+        "0500000000000000",                                                 // ats_id
+        "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", // commitment
+        "02",                                                               // protocol_version
+        "6300000000000000",                                                 // operator
+        "0300000000000000",                                                 // nonce
+    );
+    assert_eq!(hex, expected, "UpdateOnBehalfPayload encoding mismatch");
+    assert_eq!(
+        bytes.len(),
+        1 + 8 + 32 + 1 + 8 + 8,
+        "unexpected payload length"
+    );
+}
+
+#[test]
+fn test_vector_revoke_payload() {
+    // RevokeOnBehalfPayload {
+    //   action: Revoke (0x02),
+    //   ats_id: 12u64 (0x0c00000000000000),
+    //   operator: 7u64 (0x0700000000000000),
+    //   nonce: 0u64 (0x0000000000000000),
+    // }
+    let payload = RevokeOnBehalfPayload {
+        action: OnBehalfAction::Revoke,
+        ats_id: 12,
+        operator: 7u64,
+        nonce: 0,
+    };
+
+    let bytes = payload.encode();
+    let hex = hex_encode(&bytes);
+
+    let expected = concat!(
+        "02",               // action
+        "0c00000000000000", // ats_id
+        "0700000000000000", // operator
+        "0000000000000000", // nonce
+    );
+    assert_eq!(hex, expected, "RevokeOnBehalfPayload encoding mismatch");
+    assert_eq!(bytes.len(), 1 + 8 + 8 + 8, "unexpected payload length");
+}
+
+#[test]
+fn test_vector_action_enum_discriminants() {
+    // External implementations need to know the exact discriminant values.
+    assert_eq!(OnBehalfAction::Create.encode(), vec![0x00]);
+    assert_eq!(OnBehalfAction::Update.encode(), vec![0x01]);
+    assert_eq!(OnBehalfAction::Revoke.encode(), vec![0x02]);
+}
+
+/// Encode bytes as lowercase hex string (no prefix).
+fn hex_encode(bytes: &[u8]) -> alloc::string::String {
+    bytes.iter().map(|b| alloc::format!("{b:02x}")).collect()
+}
+
+// ── Migration v0→v1 ───────────────────────────────────────────────────────
+
+/// Old v0 ATS record (matches the on-chain layout before this release).
+#[derive(Encode)]
+struct OldAtsRecord {
+    owner: u64,
+    created_at: u64,
+    version_count: u32,
+    base_deposit: u64,
+}
+
+/// Old v0 version record (no AccountId generic, no depositor field).
+#[derive(Encode)]
+struct OldVersionRecord {
+    commitment: [u8; 32],
+    protocol_version: u8,
+    created_at: u64,
+    deposit: u64,
+}
+
+#[test]
+fn migration_v0_to_v1_works() {
+    use frame_support::traits::OnRuntimeUpgrade;
+
+    new_test_ext().execute_with(|| {
+        // Simulate on-chain storage version 0
+        StorageVersion::new(0).put::<Ats>();
+
+        // Write old-format ATS record directly to storage
+        let old_record = OldAtsRecord {
+            owner: ALICE,
+            created_at: 1,
+            version_count: 2,
+            base_deposit: 100,
+        };
+        let key = AtsRegistry::<Test>::hashed_key_for(0u64);
+        frame_support::storage::unhashed::put_raw(&key, &old_record.encode());
+
+        // Write old-format version records
+        let old_v0 = OldVersionRecord {
+            commitment: commitment(1),
+            protocol_version: 1,
+            created_at: 1,
+            deposit: 10,
+        };
+        let key_v0 = AtsVersions::<Test>::hashed_key_for(0u64, 0u32);
+        frame_support::storage::unhashed::put_raw(&key_v0, &old_v0.encode());
+
+        let old_v1 = OldVersionRecord {
+            commitment: commitment(2),
+            protocol_version: 1,
+            created_at: 1,
+            deposit: 10,
+        };
+        let key_v1 = AtsVersions::<Test>::hashed_key_for(0u64, 1u32);
+        frame_support::storage::unhashed::put_raw(&key_v1, &old_v1.encode());
+
+        // Run migration
+        migrations::v1::MigrateV0ToV1::<Test>::on_runtime_upgrade();
+
+        // Verify ATS record migrated correctly
+        let record = AtsRegistry::<Test>::get(0).expect("record should exist");
+        assert_eq!(record.owner, ALICE);
+        assert_eq!(record.depositor, ALICE, "depositor should be set to owner");
+        assert_eq!(record.version_count, 2);
+        assert_eq!(record.base_deposit, 100);
+
+        // Verify version records migrated correctly
+        let v0 = AtsVersions::<Test>::get(0, 0).expect("v0 should exist");
+        assert_eq!(v0.commitment, commitment(1));
+        assert_eq!(v0.depositor, ALICE, "version depositor should be owner");
+        assert_eq!(v0.deposit, 10);
+
+        let v1 = AtsVersions::<Test>::get(0, 1).expect("v1 should exist");
+        assert_eq!(v1.commitment, commitment(2));
+        assert_eq!(v1.depositor, ALICE);
+
+        // Verify storage version updated
+        assert_eq!(Ats::on_chain_storage_version(), 1);
+    });
+}
+
+#[test]
+fn migration_v1_skips_if_already_migrated() {
+    use frame_support::traits::OnRuntimeUpgrade;
+
+    new_test_ext().execute_with(|| {
+        // Already at version 1
+        StorageVersion::new(1).put::<Ats>();
+
+        let weight = migrations::v1::MigrateV0ToV1::<Test>::on_runtime_upgrade();
+
+        // Should return zero weight (skipped)
+        assert_eq!(weight, frame_support::weights::Weight::zero());
     });
 }

@@ -12,6 +12,8 @@
 //! - **Versioning**: each ATS can have multiple versions, each with its own commitment
 //! - **Deposits**: configurable base and version deposits using fungible holds
 //! - **Hard delete on revocation**: full cleanup with deposit restitution
+//! - **On-behalf (delegate) operations**: an operator can create/update/revoke ATS entries
+//!   on behalf of an owner, paying deposits and fees, authorized via off-chain signatures
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -19,6 +21,9 @@ extern crate alloc;
 
 mod types;
 pub use types::*;
+
+/// Storage migrations.
+pub mod migrations;
 
 /// Weight information for pallet extrinsics.
 pub mod weights;
@@ -41,12 +46,17 @@ pub use pallet::*;
 #[frame_support::pallet]
 pub mod pallet {
     use super::*;
+    use codec::Encode;
     use frame_support::{
         pallet_prelude::*,
         traits::fungible::{self, hold::Mutate as FunHoldMutate},
         traits::tokens::Precision,
     };
     use frame_system::pallet_prelude::*;
+    use sp_runtime::traits::{IdentifyAccount, Verify};
+
+    /// Current storage version.
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
     /// Balance type derived from the pallet's currency configuration.
     pub type BalanceOf<T> = <<T as Config>::Currency as fungible::Inspect<
@@ -58,9 +68,11 @@ pub mod pallet {
         AtsRecord<<T as frame_system::Config>::AccountId, BlockNumberFor<T>, BalanceOf<T>>;
 
     /// Concrete version record type for this pallet's configuration.
-    pub type VersionRecordOf<T> = VersionRecord<BlockNumberFor<T>, BalanceOf<T>>;
+    pub type VersionRecordOf<T> =
+        VersionRecord<<T as frame_system::Config>::AccountId, BlockNumberFor<T>, BalanceOf<T>>;
 
     #[pallet::pallet]
+    #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
     /// Configuration trait for the ATS pallet.
@@ -74,6 +86,24 @@ pub mod pallet {
             + fungible::Mutate<Self::AccountId>
             + fungible::hold::Inspect<Self::AccountId, Reason = Self::RuntimeHoldReason>
             + fungible::hold::Mutate<Self::AccountId, Reason = Self::RuntimeHoldReason>;
+
+        /// Off-chain signature type used for on-behalf authorization.
+        type OffchainSignature: Verify<Signer = Self::Signer>
+            + codec::Codec
+            + Clone
+            + PartialEq
+            + Eq
+            + TypeInfo
+            + core::fmt::Debug;
+
+        /// Signer type that maps to account IDs.
+        type Signer: IdentifyAccount<AccountId = Self::AccountId>
+            + codec::Codec
+            + Clone
+            + PartialEq
+            + Eq
+            + TypeInfo
+            + core::fmt::Debug;
 
         /// Base deposit required to create a new ATS entry.
         #[pallet::constant]
@@ -137,6 +167,11 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Per-owner nonce for on-behalf signature replay protection.
+    #[pallet::storage]
+    pub type OnBehalfNonce<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
     /// Events emitted by the ATS pallet.
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
@@ -145,12 +180,14 @@ pub mod pallet {
         AtsCreated {
             /// The assigned ATS identifier.
             ats_id: AtsId,
-            /// The account that created the entry.
+            /// The account that owns the entry.
             owner: T::AccountId,
             /// The SHA-256 commitment hash.
             commitment: [u8; 32],
             /// The protocol version.
             protocol_version: u8,
+            /// The operator that acted on behalf, if any.
+            operator: Option<T::AccountId>,
         },
         /// An ATS entry was updated with a new version.
         AtsUpdated {
@@ -162,6 +199,8 @@ pub mod pallet {
             commitment: [u8; 32],
             /// The protocol version.
             protocol_version: u8,
+            /// The operator that acted on behalf, if any.
+            operator: Option<T::AccountId>,
         },
         /// An ATS entry was revoked and all deposits returned.
         AtsRevoked {
@@ -169,6 +208,8 @@ pub mod pallet {
             ats_id: AtsId,
             /// The owner who revoked the entry.
             owner: T::AccountId,
+            /// The operator that acted on behalf, if any.
+            operator: Option<T::AccountId>,
         },
     }
 
@@ -187,6 +228,10 @@ pub mod pallet {
         MaxAtsPerAccountReached,
         /// Arithmetic overflow occurred.
         ArithmeticOverflow,
+        /// The provided off-chain signature is invalid.
+        InvalidSignature,
+        /// The provided nonce does not match the expected value.
+        InvalidNonce,
     }
 
     #[pallet::call]
@@ -202,71 +247,7 @@ pub mod pallet {
             protocol_version: u8,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(protocol_version > 0, Error::<T>::InvalidProtocolVersion);
-
-            // Check owner capacity
-            let mut ids = OwnerIndex::<T>::get(&who);
-            ids.try_push(0) // dummy value to test capacity
-                .map_err(|_| Error::<T>::MaxAtsPerAccountReached)?;
-            ids.pop(); // remove the dummy
-
-            // Allocate next ID
-            let ats_id = NextAtsId::<T>::get();
-            let next_id = ats_id
-                .checked_add(1)
-                .ok_or(Error::<T>::ArithmeticOverflow)?;
-
-            // Hold deposits
-            let base_deposit = T::BaseDeposit::get();
-            let version_deposit = T::VersionDeposit::get();
-            <T::Currency as FunHoldMutate<T::AccountId>>::hold(
-                &HoldReason::AtsDeposit.into(),
-                &who,
-                base_deposit,
-            )?;
-            <T::Currency as FunHoldMutate<T::AccountId>>::hold(
-                &HoldReason::VersionDeposit.into(),
-                &who,
-                version_deposit,
-            )?;
-
-            let now = frame_system::Pallet::<T>::block_number();
-
-            // Write storage
-            AtsRegistry::<T>::insert(
-                ats_id,
-                AtsRecordOf::<T> {
-                    owner: who.clone(),
-                    created_at: now,
-                    version_count: 1,
-                    base_deposit,
-                },
-            );
-
-            AtsVersions::<T>::insert(
-                ats_id,
-                0u32,
-                VersionRecordOf::<T> {
-                    commitment,
-                    protocol_version,
-                    created_at: now,
-                    deposit: version_deposit,
-                },
-            );
-
-            // Update owner index (capacity already verified)
-            ids.try_push(ats_id).expect("capacity checked above; qed");
-            OwnerIndex::<T>::insert(&who, ids);
-            NextAtsId::<T>::put(next_id);
-
-            Self::deposit_event(Event::AtsCreated {
-                ats_id,
-                owner: who,
-                commitment,
-                protocol_version,
-            });
-
-            Ok(())
+            Self::do_create(who.clone(), who, commitment, protocol_version, None)
         }
 
         /// Add a new version to an existing ATS entry.
@@ -281,10 +262,238 @@ pub mod pallet {
             protocol_version: u8,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
+            Self::do_update(who.clone(), who, ats_id, commitment, protocol_version, None)
+        }
+
+        /// Revoke an ATS entry, deleting all versions and returning all deposits.
+        ///
+        /// This is a hard delete: all data is removed from storage. Only the owner can revoke.
+        /// Deposits are returned to the original depositors (which may differ for on-behalf
+        /// operations).
+        /// Weight is linear in the number of versions.
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::revoke(T::MaxVersionsPerAts::get()))]
+        pub fn revoke(origin: OriginFor<T>, ats_id: AtsId) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            Self::do_revoke(who, ats_id, None)
+        }
+
+        /// Create a new ATS entry on behalf of an owner.
+        ///
+        /// The caller (operator) pays all deposits and fees. The `owner` signs a payload
+        /// authorizing this specific operation with a nonce for replay protection.
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::create_on_behalf())]
+        pub fn create_on_behalf(
+            origin: OriginFor<T>,
+            owner: T::AccountId,
+            commitment: [u8; 32],
+            protocol_version: u8,
+            nonce: u64,
+            signature: T::OffchainSignature,
+        ) -> DispatchResult {
+            let operator = ensure_signed(origin)?;
+
+            // Verify nonce
+            let current_nonce = OnBehalfNonce::<T>::get(&owner);
+            ensure!(nonce == current_nonce, Error::<T>::InvalidNonce);
+
+            // Verify signature
+            let payload = CreateOnBehalfPayload {
+                action: OnBehalfAction::Create,
+                commitment,
+                protocol_version,
+                operator: operator.clone(),
+                nonce,
+            };
+            Self::verify_signature(&payload.encode(), &signature, &owner)?;
+
+            // Increment nonce
+            OnBehalfNonce::<T>::insert(&owner, current_nonce.saturating_add(1));
+
+            Self::do_create(
+                owner,
+                operator.clone(),
+                commitment,
+                protocol_version,
+                Some(operator),
+            )
+        }
+
+        /// Update an ATS entry on behalf of the owner.
+        ///
+        /// The caller (operator) pays the version deposit. The `owner` signs a payload
+        /// authorizing this specific update with a nonce for replay protection.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::update_on_behalf())]
+        pub fn update_on_behalf(
+            origin: OriginFor<T>,
+            owner: T::AccountId,
+            ats_id: AtsId,
+            commitment: [u8; 32],
+            protocol_version: u8,
+            nonce: u64,
+            signature: T::OffchainSignature,
+        ) -> DispatchResult {
+            let operator = ensure_signed(origin)?;
+
+            // Verify nonce
+            let current_nonce = OnBehalfNonce::<T>::get(&owner);
+            ensure!(nonce == current_nonce, Error::<T>::InvalidNonce);
+
+            // Verify signature
+            let payload = UpdateOnBehalfPayload {
+                action: OnBehalfAction::Update,
+                ats_id,
+                commitment,
+                protocol_version,
+                operator: operator.clone(),
+                nonce,
+            };
+            Self::verify_signature(&payload.encode(), &signature, &owner)?;
+
+            // Increment nonce
+            OnBehalfNonce::<T>::insert(&owner, current_nonce.saturating_add(1));
+
+            Self::do_update(
+                owner,
+                operator.clone(),
+                ats_id,
+                commitment,
+                protocol_version,
+                Some(operator),
+            )
+        }
+
+        /// Revoke an ATS entry on behalf of the owner.
+        ///
+        /// Deposits are returned to the original depositors. The `owner` signs a payload
+        /// authorizing this specific revocation with a nonce for replay protection.
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::WeightInfo::revoke_on_behalf(T::MaxVersionsPerAts::get()))]
+        pub fn revoke_on_behalf(
+            origin: OriginFor<T>,
+            owner: T::AccountId,
+            ats_id: AtsId,
+            nonce: u64,
+            signature: T::OffchainSignature,
+        ) -> DispatchResult {
+            let operator = ensure_signed(origin)?;
+
+            // Verify nonce
+            let current_nonce = OnBehalfNonce::<T>::get(&owner);
+            ensure!(nonce == current_nonce, Error::<T>::InvalidNonce);
+
+            // Verify signature
+            let payload = RevokeOnBehalfPayload {
+                action: OnBehalfAction::Revoke,
+                ats_id,
+                operator: operator.clone(),
+                nonce,
+            };
+            Self::verify_signature(&payload.encode(), &signature, &owner)?;
+
+            // Increment nonce
+            OnBehalfNonce::<T>::insert(&owner, current_nonce.saturating_add(1));
+
+            Self::do_revoke(owner, ats_id, Some(operator))
+        }
+    }
+
+    // ── Internal helpers ───────────────────────────────────────────────────
+
+    impl<T: Config> Pallet<T> {
+        /// Core logic for creating an ATS entry.
+        fn do_create(
+            owner: T::AccountId,
+            depositor: T::AccountId,
+            commitment: [u8; 32],
+            protocol_version: u8,
+            operator: Option<T::AccountId>,
+        ) -> DispatchResult {
+            ensure!(protocol_version > 0, Error::<T>::InvalidProtocolVersion);
+
+            // Check owner capacity
+            let mut ids = OwnerIndex::<T>::get(&owner);
+            ids.try_push(0) // dummy value to test capacity
+                .map_err(|_| Error::<T>::MaxAtsPerAccountReached)?;
+            ids.pop(); // remove the dummy
+
+            // Allocate next ID
+            let ats_id = NextAtsId::<T>::get();
+            let next_id = ats_id
+                .checked_add(1)
+                .ok_or(Error::<T>::ArithmeticOverflow)?;
+
+            // Hold deposits from depositor
+            let base_deposit = T::BaseDeposit::get();
+            let version_deposit = T::VersionDeposit::get();
+            <T::Currency as FunHoldMutate<T::AccountId>>::hold(
+                &HoldReason::AtsDeposit.into(),
+                &depositor,
+                base_deposit,
+            )?;
+            <T::Currency as FunHoldMutate<T::AccountId>>::hold(
+                &HoldReason::VersionDeposit.into(),
+                &depositor,
+                version_deposit,
+            )?;
+
+            let now = frame_system::Pallet::<T>::block_number();
+
+            // Write storage
+            AtsRegistry::<T>::insert(
+                ats_id,
+                AtsRecordOf::<T> {
+                    owner: owner.clone(),
+                    depositor: depositor.clone(),
+                    created_at: now,
+                    version_count: 1,
+                    base_deposit,
+                },
+            );
+
+            AtsVersions::<T>::insert(
+                ats_id,
+                0u32,
+                VersionRecordOf::<T> {
+                    commitment,
+                    protocol_version,
+                    depositor,
+                    created_at: now,
+                    deposit: version_deposit,
+                },
+            );
+
+            // Update owner index (capacity already verified)
+            ids.try_push(ats_id).expect("capacity checked above; qed");
+            OwnerIndex::<T>::insert(&owner, ids);
+            NextAtsId::<T>::put(next_id);
+
+            Self::deposit_event(Event::AtsCreated {
+                ats_id,
+                owner,
+                commitment,
+                protocol_version,
+                operator,
+            });
+
+            Ok(())
+        }
+
+        /// Core logic for updating an ATS entry with a new version.
+        fn do_update(
+            owner: T::AccountId,
+            depositor: T::AccountId,
+            ats_id: AtsId,
+            commitment: [u8; 32],
+            protocol_version: u8,
+            operator: Option<T::AccountId>,
+        ) -> DispatchResult {
             ensure!(protocol_version > 0, Error::<T>::InvalidProtocolVersion);
 
             let mut record = AtsRegistry::<T>::get(ats_id).ok_or(Error::<T>::AtsNotFound)?;
-            ensure!(record.owner == who, Error::<T>::NotOwner);
+            ensure!(record.owner == owner, Error::<T>::NotOwner);
 
             let version = record.version_count;
             ensure!(
@@ -295,11 +504,11 @@ pub mod pallet {
                 .checked_add(1)
                 .ok_or(Error::<T>::ArithmeticOverflow)?;
 
-            // Hold version deposit
+            // Hold version deposit from depositor
             let version_deposit = T::VersionDeposit::get();
             <T::Currency as FunHoldMutate<T::AccountId>>::hold(
                 &HoldReason::VersionDeposit.into(),
-                &who,
+                &depositor,
                 version_deposit,
             )?;
 
@@ -311,6 +520,7 @@ pub mod pallet {
                 VersionRecordOf::<T> {
                     commitment,
                     protocol_version,
+                    depositor,
                     created_at: now,
                     deposit: version_deposit,
                 },
@@ -324,39 +534,40 @@ pub mod pallet {
                 version,
                 commitment,
                 protocol_version,
+                operator,
             });
 
             Ok(())
         }
 
-        /// Revoke an ATS entry, deleting all versions and returning all deposits.
+        /// Core logic for revoking an ATS entry.
         ///
-        /// This is a hard delete: all data is removed from storage. Only the owner can revoke.
-        /// Weight is linear in the number of versions.
-        #[pallet::call_index(2)]
-        #[pallet::weight(T::WeightInfo::revoke(T::MaxVersionsPerAts::get()))]
-        pub fn revoke(origin: OriginFor<T>, ats_id: AtsId) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-
+        /// Deposits are returned to the recorded depositor per record, enabling
+        /// mixed-depositor scenarios (e.g., some versions paid by operator, some by owner).
+        fn do_revoke(
+            owner: T::AccountId,
+            ats_id: AtsId,
+            operator: Option<T::AccountId>,
+        ) -> DispatchResult {
             let record = AtsRegistry::<T>::get(ats_id).ok_or(Error::<T>::AtsNotFound)?;
-            ensure!(record.owner == who, Error::<T>::NotOwner);
+            ensure!(record.owner == owner, Error::<T>::NotOwner);
 
-            // Release all version deposits and clean up version storage
+            // Release all version deposits to their respective depositors
             for version in 0..record.version_count {
                 if let Some(version_record) = AtsVersions::<T>::take(ats_id, version) {
                     <T::Currency as FunHoldMutate<T::AccountId>>::release(
                         &HoldReason::VersionDeposit.into(),
-                        &who,
+                        &version_record.depositor,
                         version_record.deposit,
                         Precision::Exact,
                     )?;
                 }
             }
 
-            // Release base deposit
+            // Release base deposit to the ATS record's depositor
             <T::Currency as FunHoldMutate<T::AccountId>>::release(
                 &HoldReason::AtsDeposit.into(),
-                &who,
+                &record.depositor,
                 record.base_deposit,
                 Precision::Exact,
             )?;
@@ -365,16 +576,31 @@ pub mod pallet {
             AtsRegistry::<T>::remove(ats_id);
 
             // Remove from owner index
-            let mut ids = OwnerIndex::<T>::get(&who);
+            let mut ids = OwnerIndex::<T>::get(&owner);
             ids.retain(|id| *id != ats_id);
             if ids.is_empty() {
-                OwnerIndex::<T>::remove(&who);
+                OwnerIndex::<T>::remove(&owner);
             } else {
-                OwnerIndex::<T>::insert(&who, ids);
+                OwnerIndex::<T>::insert(&owner, ids);
             }
 
-            Self::deposit_event(Event::AtsRevoked { ats_id, owner: who });
+            Self::deposit_event(Event::AtsRevoked {
+                ats_id,
+                owner,
+                operator,
+            });
 
+            Ok(())
+        }
+
+        /// Verify an off-chain signature against an expected signer account.
+        fn verify_signature(
+            payload_bytes: &[u8],
+            signature: &T::OffchainSignature,
+            expected_signer: &T::AccountId,
+        ) -> DispatchResult {
+            let valid = signature.verify(payload_bytes, expected_signer);
+            ensure!(valid, Error::<T>::InvalidSignature);
             Ok(())
         }
     }
