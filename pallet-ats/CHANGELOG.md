@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.1.1...pallet-ats-v0.2.0) (2026-03-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* Config trait now requires OffchainSignature and Signer associated types. AtsRecord and VersionRecord storage layout changed (migration provided).
+
+### Features
+
+* add on-behalf (delegate/operator) extrinsics for pallet-ats ([2a5240a](https://github.com/Allfeat/ats-sdk/commit/2a5240ac8b329058276d0e728a657d283e562b1f))
+
 ## [0.1.1](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.1.0...pallet-ats-v0.1.1) (2026-03-11)
 
 
