@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.2...pallet-ats-v0.2.3) (2026-03-20)
+
+
+### Bug Fixes
+
+* align BenchmarkHelper trait with pallet-verify-signature pattern ([fafe109](https://github.com/Allfeat/ats-sdk/commit/fafe109967d7432a28f64092473af4679fd1240e))
+
 ## [0.2.2](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.1...pallet-ats-v0.2.2) (2026-03-20)
 
 
