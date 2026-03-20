@@ -1,45 +1,76 @@
 use super::*;
 use frame_benchmarking::v2::*;
-use frame_support::traits::fungible::Mutate as _;
 use frame_system::RawOrigin;
 
 #[benchmarks]
 mod benchmarks {
     use super::*;
+    use codec::Encode;
+    use frame_support::traits::Get;
+    use frame_support::traits::fungible::Mutate as _;
+    use sp_runtime::traits::Bounded;
 
-    /// Benchmark the `create` extrinsic.
+    /// Benchmark the `create` extrinsic with `n` existing ATS entries for the caller.
     #[benchmark]
-    fn create() {
+    fn create(n: Linear<0, {T::MaxAtsPerAccount::get() - 1}>) {
         let caller: T::AccountId = whitelisted_caller();
-        T::Currency::set_balance(&caller, 1_000_000u32.into());
-        let commitment = [0u8; 32];
+        let balance = BalanceOf::<T>::max_value() / 2u32.into();
+        T::Currency::set_balance(&caller, balance);
+
+        // Pre-populate `n` ATS entries for the caller
+        for i in 0..n {
+            Pallet::<T>::create(
+                RawOrigin::Signed(caller.clone()).into(),
+                [i as u8; 32],
+                1u8,
+            )
+            .expect("pre-create should succeed");
+        }
+
+        let commitment = [0xFFu8; 32];
 
         #[extrinsic_call]
         _(RawOrigin::Signed(caller), commitment, 1u8);
 
-        assert!(pallet::AtsRegistry::<T>::contains_key(0));
+        assert!(pallet::AtsRegistry::<T>::contains_key(n as u64));
     }
 
-    /// Benchmark the `update` extrinsic.
+    /// Benchmark the `update` extrinsic with `v` existing versions.
     #[benchmark]
-    fn update() {
+    fn update(v: Linear<1, {T::MaxVersionsPerAts::get() - 1}>) {
         let caller: T::AccountId = whitelisted_caller();
-        T::Currency::set_balance(&caller, 1_000_000u32.into());
+        let balance = BalanceOf::<T>::max_value() / 2u32.into();
+        T::Currency::set_balance(&caller, balance);
 
         Pallet::<T>::create(RawOrigin::Signed(caller.clone()).into(), [0u8; 32], 1u8)
             .expect("create should succeed");
 
-        #[extrinsic_call]
-        _(RawOrigin::Signed(caller), 0u64, [1u8; 32], 1u8);
+        // Pre-populate `v - 1` additional versions (version 0 already exists from create)
+        for i in 1..v {
+            Pallet::<T>::update(
+                RawOrigin::Signed(caller.clone()).into(),
+                0u64,
+                [i as u8; 32],
+                1u8,
+            )
+            .expect("pre-update should succeed");
+        }
 
-        assert_eq!(pallet::AtsRegistry::<T>::get(0).unwrap().version_count, 2);
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), 0u64, [0xFFu8; 32], 1u8);
+
+        assert_eq!(
+            pallet::AtsRegistry::<T>::get(0).unwrap().version_count,
+            v + 1
+        );
     }
 
     /// Benchmark the `revoke` extrinsic with `v` versions.
     #[benchmark]
-    fn revoke(v: Linear<1, 100>) {
+    fn revoke(v: Linear<1, {T::MaxVersionsPerAts::get()}>) {
         let caller: T::AccountId = whitelisted_caller();
-        T::Currency::set_balance(&caller, 1_000_000u32.into());
+        let balance = BalanceOf::<T>::max_value() / 2u32.into();
+        T::Currency::set_balance(&caller, balance);
 
         Pallet::<T>::create(RawOrigin::Signed(caller.clone()).into(), [0u8; 32], 1u8)
             .expect("create should succeed");
@@ -60,60 +91,179 @@ mod benchmarks {
         assert!(!pallet::AtsRegistry::<T>::contains_key(0));
     }
 
-    /// Placeholder benchmark for `create_on_behalf`.
-    #[benchmark]
-    fn create_on_behalf() {
-        // Placeholder: proper benchmarking requires a BenchmarkHelper trait
-        // to generate valid signatures for the concrete runtime crypto.
-        let caller: T::AccountId = whitelisted_caller();
-        T::Currency::set_balance(&caller, 1_000_000u32.into());
-        let commitment = [0u8; 32];
-
-        // Fall back to direct create for weight estimation
-        #[extrinsic_call]
-        create(RawOrigin::Signed(caller), commitment, 1u8);
-
-        assert!(pallet::AtsRegistry::<T>::contains_key(0));
+    /// Helper: create an ATS entry on behalf of `owner`, paying from `operator`.
+    fn setup_create_on_behalf<T: Config>(
+        operator: &T::AccountId,
+        owner: &T::AccountId,
+        commitment: [u8; 32],
+    ) {
+        let nonce = pallet::OnBehalfNonce::<T>::get(owner);
+        let payload = CreateOnBehalfPayload {
+            action: OnBehalfAction::Create,
+            commitment,
+            protocol_version: 1u8,
+            operator: operator.clone(),
+            nonce,
+        };
+        let sig = T::BenchmarkHelper::create_signature(&payload.encode(), owner);
+        Pallet::<T>::create_on_behalf(
+            RawOrigin::Signed(operator.clone()).into(),
+            owner.clone(),
+            commitment,
+            1u8,
+            nonce,
+            sig,
+        )
+        .expect("setup create_on_behalf should succeed");
     }
 
-    /// Placeholder benchmark for `update_on_behalf`.
-    #[benchmark]
-    fn update_on_behalf() {
-        let caller: T::AccountId = whitelisted_caller();
-        T::Currency::set_balance(&caller, 1_000_000u32.into());
-
-        Pallet::<T>::create(RawOrigin::Signed(caller.clone()).into(), [0u8; 32], 1u8)
-            .expect("create should succeed");
-
-        // Fall back to direct update for weight estimation
-        #[extrinsic_call]
-        update(RawOrigin::Signed(caller), 0u64, [1u8; 32], 1u8);
-
-        assert_eq!(pallet::AtsRegistry::<T>::get(0).unwrap().version_count, 2);
+    /// Helper: update an ATS entry on behalf of `owner`, paying from `operator`.
+    fn setup_update_on_behalf<T: Config>(
+        operator: &T::AccountId,
+        owner: &T::AccountId,
+        ats_id: u64,
+        commitment: [u8; 32],
+    ) {
+        let nonce = pallet::OnBehalfNonce::<T>::get(owner);
+        let payload = UpdateOnBehalfPayload {
+            action: OnBehalfAction::Update,
+            ats_id,
+            commitment,
+            protocol_version: 1u8,
+            operator: operator.clone(),
+            nonce,
+        };
+        let sig = T::BenchmarkHelper::create_signature(&payload.encode(), owner);
+        Pallet::<T>::update_on_behalf(
+            RawOrigin::Signed(operator.clone()).into(),
+            owner.clone(),
+            ats_id,
+            commitment,
+            1u8,
+            nonce,
+            sig,
+        )
+        .expect("setup update_on_behalf should succeed");
     }
 
-    /// Placeholder benchmark for `revoke_on_behalf`.
+    /// Benchmark `create_on_behalf` with `n` existing ATS entries for the owner.
     #[benchmark]
-    fn revoke_on_behalf(v: Linear<1, 100>) {
-        let caller: T::AccountId = whitelisted_caller();
-        T::Currency::set_balance(&caller, 1_000_000u32.into());
+    fn create_on_behalf(n: Linear<0, {T::MaxAtsPerAccount::get() - 1}>) {
+        let operator: T::AccountId = whitelisted_caller();
+        let owner: T::AccountId = account("owner", 0, 0);
+        let balance = BalanceOf::<T>::max_value() / 2u32.into();
+        T::Currency::set_balance(&operator, balance);
 
-        Pallet::<T>::create(RawOrigin::Signed(caller.clone()).into(), [0u8; 32], 1u8)
-            .expect("create should succeed");
-
-        for i in 1..v {
-            Pallet::<T>::update(
-                RawOrigin::Signed(caller.clone()).into(),
-                0u64,
-                [i as u8; 32],
-                1u8,
-            )
-            .expect("update should succeed");
+        // Pre-populate `n` ATS entries for the owner via on-behalf (operator pays)
+        for i in 0..n {
+            setup_create_on_behalf::<T>(&operator, &owner, [i as u8; 32]);
         }
 
-        // Fall back to direct revoke for weight estimation
+        let commitment = [0xFFu8; 32];
+        let nonce = pallet::OnBehalfNonce::<T>::get(&owner);
+        let payload = CreateOnBehalfPayload {
+            action: OnBehalfAction::Create,
+            commitment,
+            protocol_version: 1u8,
+            operator: operator.clone(),
+            nonce,
+        };
+        let signature =
+            T::BenchmarkHelper::create_signature(&payload.encode(), &owner);
+
         #[extrinsic_call]
-        revoke(RawOrigin::Signed(caller), 0u64);
+        _(
+            RawOrigin::Signed(operator),
+            owner,
+            commitment,
+            1u8,
+            nonce,
+            signature,
+        );
+
+        assert!(pallet::AtsRegistry::<T>::contains_key(n as u64));
+    }
+
+    /// Benchmark `update_on_behalf` with `v` existing versions.
+    #[benchmark]
+    fn update_on_behalf(v: Linear<1, {T::MaxVersionsPerAts::get() - 1}>) {
+        let operator: T::AccountId = whitelisted_caller();
+        let owner: T::AccountId = account("owner", 0, 0);
+        let balance = BalanceOf::<T>::max_value() / 2u32.into();
+        T::Currency::set_balance(&operator, balance);
+
+        // Create the initial ATS entry via on-behalf (operator pays)
+        setup_create_on_behalf::<T>(&operator, &owner, [0u8; 32]);
+
+        // Pre-populate `v - 1` additional versions via on-behalf
+        for i in 1..v {
+            setup_update_on_behalf::<T>(&operator, &owner, 0u64, [i as u8; 32]);
+        }
+
+        let commitment = [0xFFu8; 32];
+        let nonce = pallet::OnBehalfNonce::<T>::get(&owner);
+        let payload = UpdateOnBehalfPayload {
+            action: OnBehalfAction::Update,
+            ats_id: 0u64,
+            commitment,
+            protocol_version: 1u8,
+            operator: operator.clone(),
+            nonce,
+        };
+        let signature =
+            T::BenchmarkHelper::create_signature(&payload.encode(), &owner);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(operator),
+            owner,
+            0u64,
+            commitment,
+            1u8,
+            nonce,
+            signature,
+        );
+
+        assert_eq!(
+            pallet::AtsRegistry::<T>::get(0).unwrap().version_count,
+            v + 1
+        );
+    }
+
+    /// Benchmark `revoke_on_behalf` with `v` versions.
+    #[benchmark]
+    fn revoke_on_behalf(v: Linear<1, {T::MaxVersionsPerAts::get()}>) {
+        let operator: T::AccountId = whitelisted_caller();
+        let owner: T::AccountId = account("owner", 0, 0);
+        let balance = BalanceOf::<T>::max_value() / 2u32.into();
+        T::Currency::set_balance(&operator, balance);
+
+        // Create the initial ATS entry via on-behalf (operator pays)
+        setup_create_on_behalf::<T>(&operator, &owner, [0u8; 32]);
+
+        // Pre-populate additional versions via on-behalf
+        for i in 1..v {
+            setup_update_on_behalf::<T>(&operator, &owner, 0u64, [i as u8; 32]);
+        }
+
+        let nonce = pallet::OnBehalfNonce::<T>::get(&owner);
+        let payload = RevokeOnBehalfPayload {
+            action: OnBehalfAction::Revoke,
+            ats_id: 0u64,
+            operator: operator.clone(),
+            nonce,
+        };
+        let signature =
+            T::BenchmarkHelper::create_signature(&payload.encode(), &owner);
+
+        #[extrinsic_call]
+        _(
+            RawOrigin::Signed(operator),
+            owner,
+            0u64,
+            nonce,
+            signature,
+        );
 
         assert!(!pallet::AtsRegistry::<T>::contains_key(0));
     }

@@ -86,6 +86,20 @@ parameter_types! {
     pub const MaxAtsPerAccount: u32 = 5;
 }
 
+/// Benchmark helper that generates valid [`TestSignature`]s.
+#[cfg(feature = "runtime-benchmarks")]
+pub struct TestBenchmarkHelper;
+
+#[cfg(feature = "runtime-benchmarks")]
+impl crate::BenchmarkHelper<u64, TestSignature> for TestBenchmarkHelper {
+    fn create_signature(payload: &[u8], signer: &u64) -> TestSignature {
+        TestSignature {
+            signer: *signer,
+            payload: payload.to_vec(),
+        }
+    }
+}
+
 impl pallet_ats::Config for Test {
     type RuntimeHoldReason = RuntimeHoldReason;
     type Currency = Balances;
@@ -96,6 +110,8 @@ impl pallet_ats::Config for Test {
     type MaxVersionsPerAts = MaxVersionsPerAts;
     type MaxAtsPerAccount = MaxAtsPerAccount;
     type WeightInfo = ();
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = TestBenchmarkHelper;
 }
 
 /// Build test externalities with funded accounts.

@@ -40,6 +40,16 @@ mod tests;
 
 pub use pallet_ats_primitives::*;
 
+/// Helper trait for generating valid signatures during benchmarks.
+///
+/// Concrete runtimes must implement this to supply valid signatures
+/// for the off-chain payload types used in on-behalf extrinsics.
+#[cfg(feature = "runtime-benchmarks")]
+pub trait BenchmarkHelper<AccountId, Signature> {
+    /// Create a valid signature for the given `payload` bytes, as if signed by `signer`.
+    fn create_signature(payload: &[u8], signer: &AccountId) -> Signature;
+}
+
 pub use pallet::*;
 
 #[frame_support::pallet]
@@ -122,6 +132,10 @@ pub mod pallet {
 
         /// Weight information for pallet extrinsics.
         type WeightInfo: crate::WeightInfo;
+
+        /// Helper for generating valid signatures in benchmarks.
+        #[cfg(feature = "runtime-benchmarks")]
+        type BenchmarkHelper: crate::BenchmarkHelper<Self::AccountId, Self::OffchainSignature>;
     }
 
     /// Reasons for holding funds.
@@ -282,7 +296,7 @@ pub mod pallet {
         /// The caller (operator) pays all deposits and fees. The `owner` signs a payload
         /// authorizing this specific operation with a nonce for replay protection.
         #[pallet::call_index(3)]
-        #[pallet::weight(T::WeightInfo::create_on_behalf())]
+        #[pallet::weight(T::WeightInfo::create_on_behalf(T::MaxAtsPerAccount::get()))]
         pub fn create_on_behalf(
             origin: OriginFor<T>,
             owner: T::AccountId,
@@ -324,7 +338,7 @@ pub mod pallet {
         /// The caller (operator) pays the version deposit. The `owner` signs a payload
         /// authorizing this specific update with a nonce for replay protection.
         #[pallet::call_index(4)]
-        #[pallet::weight(T::WeightInfo::update_on_behalf())]
+        #[pallet::weight(T::WeightInfo::update_on_behalf(T::MaxVersionsPerAts::get()))]
         pub fn update_on_behalf(
             origin: OriginFor<T>,
             owner: T::AccountId,
