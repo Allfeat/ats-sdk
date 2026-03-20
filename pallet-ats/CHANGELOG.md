@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.1...pallet-ats-v0.2.2) (2026-03-20)
+
+
+### Features
+
+* implement real on-behalf benchmarks with BenchmarkHelper trait ([3e62b7b](https://github.com/Allfeat/ats-sdk/commit/3e62b7bb2fa0f848dc13dad787b6eca7617f09e0))
+
 ## [0.2.1](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.0...pallet-ats-v0.2.1) (2026-03-20)
 
 
