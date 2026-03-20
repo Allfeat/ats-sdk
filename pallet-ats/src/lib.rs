@@ -68,10 +68,9 @@ impl BenchmarkHelper<sp_runtime::MultiSignature, sp_runtime::AccountId32> for ()
         msg: &[u8],
     ) -> (sp_runtime::MultiSignature, sp_runtime::AccountId32) {
         use sp_runtime::traits::IdentifyAccount as _;
-        let public = sp_io::crypto::sr25519_generate(
-            0.into(),
-            Some(entropy.to_vec()),
-        );
+        // Build a valid SecretUri derivation path from the entropy bytes.
+        let uri = alloc::format!("//{}", core::str::from_utf8(entropy).unwrap_or("bench"));
+        let public = sp_io::crypto::sr25519_generate(0.into(), Some(uri.into_bytes()));
         let account: sp_runtime::AccountId32 =
             sp_runtime::MultiSigner::Sr25519(public).into_account();
         let signature = sp_runtime::MultiSignature::Sr25519(
