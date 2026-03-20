@@ -2039,7 +2039,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "pallet-ats"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -2049,6 +2049,7 @@ dependencies = [
  "pallet-balances",
  "parity-scale-codec",
  "scale-info",
+ "sp-core",
  "sp-io",
  "sp-runtime",
 ]

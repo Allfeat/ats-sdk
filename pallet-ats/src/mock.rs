@@ -91,12 +91,14 @@ parameter_types! {
 pub struct TestBenchmarkHelper;
 
 #[cfg(feature = "runtime-benchmarks")]
-impl crate::BenchmarkHelper<u64, TestSignature> for TestBenchmarkHelper {
-    fn create_signature(payload: &[u8], signer: &u64) -> TestSignature {
-        TestSignature {
-            signer: *signer,
-            payload: payload.to_vec(),
-        }
+impl crate::BenchmarkHelper<TestSignature, u64> for TestBenchmarkHelper {
+    fn create_signature(_entropy: &[u8], msg: &[u8]) -> (TestSignature, u64) {
+        const BENCH_OWNER: u64 = 42;
+        let sig = TestSignature {
+            signer: BENCH_OWNER,
+            payload: msg.to_vec(),
+        };
+        (sig, BENCH_OWNER)
     }
 }
 

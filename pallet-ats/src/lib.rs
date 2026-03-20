@@ -42,12 +42,41 @@ pub use pallet_ats_primitives::*;
 
 /// Helper trait for generating valid signatures during benchmarks.
 ///
-/// Concrete runtimes must implement this to supply valid signatures
-/// for the off-chain payload types used in on-behalf extrinsics.
+/// Follows the same pattern as `pallet-verify-signature`: the helper receives
+/// arbitrary `entropy` bytes (to seed key generation) and the `msg` to sign,
+/// and returns a `(Signature, AccountId)` pair that will pass verification.
+///
+/// A blanket `()` implementation is provided for runtimes using
+/// `MultiSignature` / `AccountId32`, which delegates to `sp_io` host
+/// functions and works without `sp-core/full_crypto`.
 #[cfg(feature = "runtime-benchmarks")]
-pub trait BenchmarkHelper<AccountId, Signature> {
-    /// Create a valid signature for the given `payload` bytes, as if signed by `signer`.
-    fn create_signature(payload: &[u8], signer: &AccountId) -> Signature;
+pub trait BenchmarkHelper<Signature, AccountId> {
+    /// Create a valid `(signature, signer_account)` pair for `msg`.
+    ///
+    /// `entropy` can be used to derive different key pairs across calls.
+    fn create_signature(entropy: &[u8], msg: &[u8]) -> (Signature, AccountId);
+}
+
+/// Default implementation for runtimes using `MultiSignature` / `AccountId32`.
+///
+/// Uses `sp_io` host functions (keystore) to generate keys and sign,
+/// so it works in `no_std` benchmark environments without `sp-core/full_crypto`.
+#[cfg(feature = "runtime-benchmarks")]
+impl BenchmarkHelper<sp_runtime::MultiSignature, sp_runtime::AccountId32> for () {
+    fn create_signature(
+        _entropy: &[u8],
+        msg: &[u8],
+    ) -> (sp_runtime::MultiSignature, sp_runtime::AccountId32) {
+        use sp_runtime::traits::IdentifyAccount as _;
+        let public = sp_io::crypto::sr25519_generate(0.into(), None);
+        let account: sp_runtime::AccountId32 =
+            sp_runtime::MultiSigner::Sr25519(public).into_account();
+        let signature = sp_runtime::MultiSignature::Sr25519(
+            sp_io::crypto::sr25519_sign(0.into(), &public, msg)
+                .expect("keystore available in benchmark context; qed"),
+        );
+        (signature, account)
+    }
 }
 
 pub use pallet::*;
@@ -134,8 +163,10 @@ pub mod pallet {
         type WeightInfo: crate::WeightInfo;
 
         /// Helper for generating valid signatures in benchmarks.
+        ///
+        /// Production runtimes using `MultiSignature` / `AccountId32` can use `()`.
         #[cfg(feature = "runtime-benchmarks")]
-        type BenchmarkHelper: crate::BenchmarkHelper<Self::AccountId, Self::OffchainSignature>;
+        type BenchmarkHelper: crate::BenchmarkHelper<Self::OffchainSignature, Self::AccountId>;
     }
 
     /// Reasons for holding funds.
