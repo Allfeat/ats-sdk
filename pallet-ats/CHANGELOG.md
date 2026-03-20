@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.0...pallet-ats-v0.2.1) (2026-03-20)
+
+
+### Features
+
+* extract off-chain payload types into pallet-ats-primitives ([e41a853](https://github.com/Allfeat/ats-sdk/commit/e41a85319e04754dfb1f76cebd914a9c4c1128e2))
+
+
+### Bug Fixes
+
+* revert manual pallet-ats bump and add version to path dep ([1b0b065](https://github.com/Allfeat/ats-sdk/commit/1b0b06546520b8282cf205be6374f584d8ccf674))
+
 ## [0.2.0](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.1.1...pallet-ats-v0.2.0) (2026-03-19)
 
 
