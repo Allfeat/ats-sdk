@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.5](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.4...pallet-ats-v0.2.5) (2026-03-20)
+
+
+### Bug Fixes
+
+* format entropy as SecretUri for sr25519_generate ([d765752](https://github.com/Allfeat/ats-sdk/commit/d765752cef5370eaf97d38f839a0885c2646a1c0))
+
 ## [0.2.4](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.3...pallet-ats-v0.2.4) (2026-03-20)
 
 
