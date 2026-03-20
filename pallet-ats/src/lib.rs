@@ -64,11 +64,14 @@ pub trait BenchmarkHelper<Signature, AccountId> {
 #[cfg(feature = "runtime-benchmarks")]
 impl BenchmarkHelper<sp_runtime::MultiSignature, sp_runtime::AccountId32> for () {
     fn create_signature(
-        _entropy: &[u8],
+        entropy: &[u8],
         msg: &[u8],
     ) -> (sp_runtime::MultiSignature, sp_runtime::AccountId32) {
         use sp_runtime::traits::IdentifyAccount as _;
-        let public = sp_io::crypto::sr25519_generate(0.into(), None);
+        let public = sp_io::crypto::sr25519_generate(
+            0.into(),
+            Some(entropy.to_vec()),
+        );
         let account: sp_runtime::AccountId32 =
             sp_runtime::MultiSigner::Sr25519(public).into_account();
         let signature = sp_runtime::MultiSignature::Sr25519(
