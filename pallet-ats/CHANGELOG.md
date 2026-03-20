@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.3...pallet-ats-v0.2.4) (2026-03-20)
+
+
+### Bug Fixes
+
+* use deterministic seed in BenchmarkHelper default impl ([a5fb393](https://github.com/Allfeat/ats-sdk/commit/a5fb393981a1cf8faafadf6fb68e3ffc6e32c2e7))
+
 ## [0.2.3](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.2...pallet-ats-v0.2.3) (2026-03-20)
 
 
