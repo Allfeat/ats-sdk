@@ -1,3 +1,3 @@
 [workspace]
-members = ["ats-sdk", "pallet-ats"]
+members = ["ats-sdk", "pallet-ats", "pallet-ats-primitives"]
 resolver = "2"

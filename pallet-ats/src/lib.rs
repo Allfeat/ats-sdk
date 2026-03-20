@@ -38,8 +38,7 @@ mod mock;
 #[cfg(test)]
 mod tests;
 
-/// ATS identifier type (auto-incremented `u64`).
-pub type AtsId = u64;
+pub use pallet_ats_primitives::*;
 
 pub use pallet::*;
 

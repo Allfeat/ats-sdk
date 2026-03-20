@@ -16,6 +16,7 @@ jobs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       ats-sdk--release_created: ${{ steps.release.outputs['ats-sdk--release_created'] }}
       pallet-ats--release_created: ${{ steps.release.outputs['pallet-ats--release_created'] }}
+      pallet-ats-primitives--release_created: ${{ steps.release.outputs['pallet-ats-primitives--release_created'] }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -34,11 +35,25 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
+  publish-pallet-ats-primitives:
+    name: Publish pallet-ats-primitives to crates.io
+    runs-on: ubuntu-latest
+    needs: release-please
+    if: needs.release-please.outputs['pallet-ats-primitives--release_created'] == 'true'
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo publish -p pallet-ats-primitives
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
   publish-pallet-ats:
     name: Publish pallet-ats to crates.io
     runs-on: ubuntu-latest
-    needs: release-please
-    if: needs.release-please.outputs['pallet-ats--release_created'] == 'true'
+    needs: [release-please, publish-pallet-ats-primitives]
+    if: always() && needs.release-please.outputs['pallet-ats--release_created'] == 'true' && (needs.publish-pallet-ats-primitives.result == 'success' || needs.publish-pallet-ats-primitives.result == 'skipped')
     environment: crates-io
     steps:
       - uses: actions/checkout@v4
