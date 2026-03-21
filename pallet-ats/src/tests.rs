@@ -52,6 +52,16 @@ fn revoke_payload(ats_id: u64, operator: u64, nonce: u64) -> RevokeOnBehalfPaylo
     }
 }
 
+/// Helper: find the total deposit amount for a given depositor in an ATS record.
+fn deposit_for(record: &AtsRecordOf<Test>, who: u64) -> u64 {
+    record
+        .deposits
+        .iter()
+        .find(|e| e.depositor == who)
+        .map(|e| e.amount)
+        .unwrap_or(0)
+}
+
 // ── create ──────────────────────────────────────────────────────────────────
 
 #[test]
@@ -62,16 +72,15 @@ fn create_works() {
         // Check ATS record
         let record = AtsRegistry::<Test>::get(0).expect("ATS should exist");
         assert_eq!(record.owner, ALICE);
-        assert_eq!(record.depositor, ALICE);
         assert_eq!(record.version_count, 1);
-        assert_eq!(record.base_deposit, 100);
+        // Single deposit entry: base(100) + version(10) = 110
+        assert_eq!(record.deposits.len(), 1);
+        assert_eq!(deposit_for(&record, ALICE), 110);
 
         // Check version 0
         let version = AtsVersions::<Test>::get(0, 0).expect("version should exist");
         assert_eq!(version.commitment, commitment(1));
         assert_eq!(version.protocol_version, 1);
-        assert_eq!(version.depositor, ALICE);
-        assert_eq!(version.deposit, 10);
 
         // Check owner index
         let ids = OwnerIndex::<Test>::get(ALICE);
@@ -144,10 +153,11 @@ fn update_works() {
 
         let record = AtsRegistry::<Test>::get(0).unwrap();
         assert_eq!(record.version_count, 2);
+        // Deposits aggregated: base(100) + 2*version(10) = 120
+        assert_eq!(deposit_for(&record, ALICE), 120);
 
         let v1 = AtsVersions::<Test>::get(0, 1).unwrap();
         assert_eq!(v1.commitment, commitment(2));
-        assert_eq!(v1.depositor, ALICE);
 
         System::assert_last_event(
             Event::<Test>::AtsUpdated {
@@ -433,14 +443,11 @@ fn create_on_behalf_works() {
             sign(ALICE, &payload),
         ));
 
-        // ATS record: owner=ALICE, depositor=BOB
+        // ATS record: owner=ALICE, deposits from BOB
         let record = AtsRegistry::<Test>::get(0).expect("ATS should exist");
         assert_eq!(record.owner, ALICE);
-        assert_eq!(record.depositor, BOB);
-
-        // Version record: depositor=BOB
-        let version = AtsVersions::<Test>::get(0, 0).expect("version should exist");
-        assert_eq!(version.depositor, BOB);
+        assert_eq!(record.deposits.len(), 1);
+        assert_eq!(deposit_for(&record, BOB), 110); // base(100) + version(10)
 
         // Owner index tracks ALICE
         assert_eq!(OwnerIndex::<Test>::get(ALICE).into_inner(), vec![0]);
@@ -636,10 +643,13 @@ fn update_on_behalf_works() {
 
         let record = AtsRegistry::<Test>::get(0).unwrap();
         assert_eq!(record.version_count, 2);
+        // Two depositors: ALICE (base+v0=110) and BOB (v1=10)
+        assert_eq!(record.deposits.len(), 2);
+        assert_eq!(deposit_for(&record, ALICE), 110);
+        assert_eq!(deposit_for(&record, BOB), 10);
 
         let v1 = AtsVersions::<Test>::get(0, 1).unwrap();
         assert_eq!(v1.commitment, commitment(2));
-        assert_eq!(v1.depositor, BOB);
 
         System::assert_last_event(
             Event::<Test>::AtsUpdated {
@@ -849,8 +859,10 @@ fn owner_can_update_after_on_behalf_create() {
             1
         ));
 
-        let v1 = AtsVersions::<Test>::get(0, 1).unwrap();
-        assert_eq!(v1.depositor, ALICE);
+        let record = AtsRegistry::<Test>::get(0).unwrap();
+        // BOB has base+v0=110, ALICE has v1=10
+        assert_eq!(deposit_for(&record, BOB), 110);
+        assert_eq!(deposit_for(&record, ALICE), 10);
     });
 }
 
@@ -1337,37 +1349,40 @@ fn hex_encode(bytes: &[u8]) -> alloc::string::String {
     bytes.iter().map(|b| alloc::format!("{b:02x}")).collect()
 }
 
-// ── Migration v0→v1 ───────────────────────────────────────────────────────
+// ── Migration v1→v2 ───────────────────────────────────────────────────────
 
-/// Old v0 ATS record (matches the on-chain layout before this release).
+/// V1 ATS record (matches the v1 on-chain layout).
 #[derive(Encode)]
-struct OldAtsRecord {
+struct V1AtsRecord {
     owner: u64,
+    depositor: u64,
     created_at: u64,
     version_count: u32,
     base_deposit: u64,
 }
 
-/// Old v0 version record (no AccountId generic, no depositor field).
+/// V1 version record (with depositor and deposit).
 #[derive(Encode)]
-struct OldVersionRecord {
+struct V1VersionRecord {
     commitment: [u8; 32],
     protocol_version: u8,
+    depositor: u64,
     created_at: u64,
     deposit: u64,
 }
 
 #[test]
-fn migration_v0_to_v1_works() {
+fn migration_v1_to_v2_works() {
     use frame_support::traits::OnRuntimeUpgrade;
 
     new_test_ext().execute_with(|| {
-        // Simulate on-chain storage version 0
-        StorageVersion::new(0).put::<Ats>();
+        // Simulate on-chain storage version 1
+        StorageVersion::new(1).put::<Ats>();
 
-        // Write old-format ATS record directly to storage
-        let old_record = OldAtsRecord {
+        // Write v1-format ATS record directly to storage
+        let old_record = V1AtsRecord {
             owner: ALICE,
+            depositor: ALICE,
             created_at: 1,
             version_count: 2,
             base_deposit: 100,
@@ -1375,19 +1390,21 @@ fn migration_v0_to_v1_works() {
         let key = AtsRegistry::<Test>::hashed_key_for(0u64);
         frame_support::storage::unhashed::put_raw(&key, &old_record.encode());
 
-        // Write old-format version records
-        let old_v0 = OldVersionRecord {
+        // Write v1-format version records
+        let old_v0 = V1VersionRecord {
             commitment: commitment(1),
             protocol_version: 1,
+            depositor: ALICE,
             created_at: 1,
             deposit: 10,
         };
         let key_v0 = AtsVersions::<Test>::hashed_key_for(0u64, 0u32);
         frame_support::storage::unhashed::put_raw(&key_v0, &old_v0.encode());
 
-        let old_v1 = OldVersionRecord {
+        let old_v1 = V1VersionRecord {
             commitment: commitment(2),
             protocol_version: 1,
+            depositor: ALICE,
             created_at: 1,
             deposit: 10,
         };
@@ -1395,41 +1412,181 @@ fn migration_v0_to_v1_works() {
         frame_support::storage::unhashed::put_raw(&key_v1, &old_v1.encode());
 
         // Run migration
-        migrations::v1::MigrateV0ToV1::<Test>::on_runtime_upgrade();
+        migrations::v2::MigrateV1ToV2::<Test>::on_runtime_upgrade();
 
         // Verify ATS record migrated correctly
         let record = AtsRegistry::<Test>::get(0).expect("record should exist");
         assert_eq!(record.owner, ALICE);
-        assert_eq!(record.depositor, ALICE, "depositor should be set to owner");
         assert_eq!(record.version_count, 2);
-        assert_eq!(record.base_deposit, 100);
+        // All deposits aggregated: base(100) + v0(10) + v1(10) = 120
+        assert_eq!(record.deposits.len(), 1);
+        assert_eq!(deposit_for(&record, ALICE), 120);
 
-        // Verify version records migrated correctly
+        // Verify version records slimmed down (no depositor/deposit fields)
         let v0 = AtsVersions::<Test>::get(0, 0).expect("v0 should exist");
         assert_eq!(v0.commitment, commitment(1));
-        assert_eq!(v0.depositor, ALICE, "version depositor should be owner");
-        assert_eq!(v0.deposit, 10);
 
         let v1 = AtsVersions::<Test>::get(0, 1).expect("v1 should exist");
         assert_eq!(v1.commitment, commitment(2));
-        assert_eq!(v1.depositor, ALICE);
 
         // Verify storage version updated
-        assert_eq!(Ats::on_chain_storage_version(), 1);
+        assert_eq!(Ats::on_chain_storage_version(), 2);
     });
 }
 
 #[test]
-fn migration_v1_skips_if_already_migrated() {
+fn migration_v1_to_v2_mixed_depositors() {
     use frame_support::traits::OnRuntimeUpgrade;
 
     new_test_ext().execute_with(|| {
-        // Already at version 1
         StorageVersion::new(1).put::<Ats>();
 
-        let weight = migrations::v1::MigrateV0ToV1::<Test>::on_runtime_upgrade();
+        // ATS record with ALICE as owner/depositor
+        let old_record = V1AtsRecord {
+            owner: ALICE,
+            depositor: ALICE,
+            created_at: 1,
+            version_count: 3,
+            base_deposit: 100,
+        };
+        let key = AtsRegistry::<Test>::hashed_key_for(0u64);
+        frame_support::storage::unhashed::put_raw(&key, &old_record.encode());
+
+        // v0: depositor=ALICE
+        let v0 = V1VersionRecord {
+            commitment: commitment(1),
+            protocol_version: 1,
+            depositor: ALICE,
+            created_at: 1,
+            deposit: 10,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &AtsVersions::<Test>::hashed_key_for(0u64, 0u32),
+            &v0.encode(),
+        );
+
+        // v1: depositor=BOB (on-behalf update)
+        let v1 = V1VersionRecord {
+            commitment: commitment(2),
+            protocol_version: 1,
+            depositor: BOB,
+            created_at: 1,
+            deposit: 10,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &AtsVersions::<Test>::hashed_key_for(0u64, 1u32),
+            &v1.encode(),
+        );
+
+        // v2: depositor=BOB (another on-behalf update)
+        let v2 = V1VersionRecord {
+            commitment: commitment(3),
+            protocol_version: 1,
+            depositor: BOB,
+            created_at: 1,
+            deposit: 10,
+        };
+        frame_support::storage::unhashed::put_raw(
+            &AtsVersions::<Test>::hashed_key_for(0u64, 2u32),
+            &v2.encode(),
+        );
+
+        migrations::v2::MigrateV1ToV2::<Test>::on_runtime_upgrade();
+
+        let record = AtsRegistry::<Test>::get(0).expect("record should exist");
+        assert_eq!(record.deposits.len(), 2);
+        // ALICE: base(100) + v0(10) = 110
+        assert_eq!(deposit_for(&record, ALICE), 110);
+        // BOB: v1(10) + v2(10) = 20
+        assert_eq!(deposit_for(&record, BOB), 20);
+    });
+}
+
+#[test]
+fn migration_v2_skips_if_already_migrated() {
+    use frame_support::traits::OnRuntimeUpgrade;
+
+    new_test_ext().execute_with(|| {
+        // Already at version 2
+        StorageVersion::new(2).put::<Ats>();
+
+        let weight = migrations::v2::MigrateV1ToV2::<Test>::on_runtime_upgrade();
 
         // Should return zero weight (skipped)
         assert_eq!(weight, frame_support::weights::Weight::zero());
+    });
+}
+
+// ── Deposit aggregation ────────────────────────────────────────────────────
+
+#[test]
+fn deposits_aggregate_same_depositor() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(0), 1));
+        assert_ok!(Ats::update(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            commitment(1),
+            1
+        ));
+        assert_ok!(Ats::update(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            commitment(2),
+            1
+        ));
+
+        let record = AtsRegistry::<Test>::get(0).unwrap();
+        // Only one deposit entry, aggregated
+        assert_eq!(record.deposits.len(), 1);
+        // base(100) + 3*version(10) = 130
+        assert_eq!(deposit_for(&record, ALICE), 130);
+    });
+}
+
+#[test]
+fn deposits_track_multiple_depositors() {
+    new_test_ext().execute_with(|| {
+        // ALICE creates
+        assert_ok!(Ats::create(RuntimeOrigin::signed(ALICE), commitment(0), 1));
+
+        // BOB updates on behalf
+        let payload = update_payload(0, commitment(1), 1, BOB, 0);
+        assert_ok!(Ats::update_on_behalf(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            commitment(1),
+            1,
+            0,
+            sign(ALICE, &payload),
+        ));
+
+        // CHARLIE updates on behalf
+        let payload = update_payload(0, commitment(2), 1, CHARLIE, 1);
+        assert_ok!(Ats::update_on_behalf(
+            RuntimeOrigin::signed(CHARLIE),
+            ALICE,
+            0,
+            commitment(2),
+            1,
+            1,
+            sign(ALICE, &payload),
+        ));
+
+        let record = AtsRegistry::<Test>::get(0).unwrap();
+        assert_eq!(record.deposits.len(), 3);
+        assert_eq!(deposit_for(&record, ALICE), 110); // base + v0
+        assert_eq!(deposit_for(&record, BOB), 10); // v1
+        assert_eq!(deposit_for(&record, CHARLIE), 10); // v2
+    });
+}
+
+// ── Storage version ────────────────────────────────────────────────────────
+
+#[test]
+fn storage_version_is_2() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(Ats::in_code_storage_version(), 2);
     });
 }

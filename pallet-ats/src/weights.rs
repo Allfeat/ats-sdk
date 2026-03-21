@@ -2,10 +2,10 @@ use frame_support::weights::Weight;
 
 /// Weight information for pallet-ats extrinsics.
 pub trait WeightInfo {
-    /// Weight for creating a new ATS entry.
-    fn create() -> Weight;
-    /// Weight for updating an ATS entry with a new version.
-    fn update() -> Weight;
+    /// Weight for creating a new ATS entry with `n` existing entries for the caller.
+    fn create(n: u32) -> Weight;
+    /// Weight for updating an ATS entry with `v` existing versions.
+    fn update(v: u32) -> Weight;
     /// Weight for revoking an ATS entry with `v` versions.
     fn revoke(v: u32) -> Weight;
     /// Weight for creating an ATS entry on behalf of an owner, with `n` existing entries.
@@ -18,12 +18,18 @@ pub trait WeightInfo {
 
 /// Placeholder weight implementation for development and testing.
 impl WeightInfo for () {
-    fn create() -> Weight {
-        Weight::from_parts(10_000, 0)
+    fn create(n: u32) -> Weight {
+        Weight::from_parts(
+            10_000_u64.saturating_add(1_000_u64.saturating_mul(u64::from(n))),
+            0,
+        )
     }
 
-    fn update() -> Weight {
-        Weight::from_parts(10_000, 0)
+    fn update(v: u32) -> Weight {
+        Weight::from_parts(
+            10_000_u64.saturating_add(500_u64.saturating_mul(u64::from(v))),
+            0,
+        )
     }
 
     fn revoke(v: u32) -> Weight {

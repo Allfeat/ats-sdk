@@ -93,10 +93,11 @@ pub mod pallet {
         traits::tokens::Precision,
     };
     use frame_system::pallet_prelude::*;
+    use sp_runtime::traits::CheckedAdd;
     use sp_runtime::traits::{IdentifyAccount, Verify};
 
     /// Current storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     /// Balance type derived from the pallet's currency configuration.
     pub type BalanceOf<T> = <<T as Config>::Currency as fungible::Inspect<
@@ -107,9 +108,8 @@ pub mod pallet {
     pub type AtsRecordOf<T> =
         AtsRecord<<T as frame_system::Config>::AccountId, BlockNumberFor<T>, BalanceOf<T>>;
 
-    /// Concrete version record type for this pallet's configuration.
-    pub type VersionRecordOf<T> =
-        VersionRecord<<T as frame_system::Config>::AccountId, BlockNumberFor<T>, BalanceOf<T>>;
+    /// Concrete version info type for this pallet's configuration.
+    pub type VersionInfoOf<T> = VersionInfo<BlockNumberFor<T>>;
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -174,12 +174,9 @@ pub mod pallet {
     /// Reasons for holding funds.
     #[pallet::composite_enum]
     pub enum HoldReason {
-        /// Deposit for creating an ATS entry.
+        /// Deposit for an ATS entry (base + all version deposits aggregated).
         #[codec(index = 0)]
         AtsDeposit,
-        /// Deposit for adding a version to an ATS entry.
-        #[codec(index = 1)]
-        VersionDeposit,
     }
 
     /// Auto-incrementing counter for the next ATS identifier.
@@ -191,7 +188,7 @@ pub mod pallet {
     pub type AtsRegistry<T: Config> =
         StorageMap<_, Blake2_128Concat, AtsId, AtsRecordOf<T>, OptionQuery>;
 
-    /// Double map storing version records for each ATS entry.
+    /// Double map storing version info for each ATS entry.
     #[pallet::storage]
     pub type AtsVersions<T: Config> = StorageDoubleMap<
         _,
@@ -199,7 +196,7 @@ pub mod pallet {
         AtsId,
         Blake2_128Concat,
         u32,
-        VersionRecordOf<T>,
+        VersionInfoOf<T>,
         OptionQuery,
     >;
 
@@ -278,15 +275,17 @@ pub mod pallet {
         InvalidSignature,
         /// The provided nonce does not match the expected value.
         InvalidNonce,
+        /// Maximum number of unique depositors reached for this ATS entry.
+        MaxDepositorsReached,
     }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         /// Create a new ATS entry with an initial version (version 0).
         ///
-        /// Holds `BaseDeposit + VersionDeposit` from the caller's balance.
+        /// Holds `BaseDeposit + VersionDeposit` from the caller's balance in a single hold.
         #[pallet::call_index(0)]
-        #[pallet::weight(T::WeightInfo::create())]
+        #[pallet::weight(T::WeightInfo::create(T::MaxAtsPerAccount::get()))]
         pub fn create(
             origin: OriginFor<T>,
             commitment: [u8; 32],
@@ -300,7 +299,7 @@ pub mod pallet {
         ///
         /// Holds `VersionDeposit` from the caller's balance. Only the owner can update.
         #[pallet::call_index(1)]
-        #[pallet::weight(T::WeightInfo::update())]
+        #[pallet::weight(T::WeightInfo::update(T::MaxVersionsPerAts::get()))]
         pub fn update(
             origin: OriginFor<T>,
             ats_id: AtsId,
@@ -471,43 +470,47 @@ pub mod pallet {
                 .checked_add(1)
                 .ok_or(Error::<T>::ArithmeticOverflow)?;
 
-            // Hold deposits from depositor
+            // Hold combined deposit (base + version) in a single hold
             let base_deposit = T::BaseDeposit::get();
             let version_deposit = T::VersionDeposit::get();
+            let total_deposit = base_deposit
+                .checked_add(&version_deposit)
+                .ok_or(Error::<T>::ArithmeticOverflow)?;
             <T::Currency as FunHoldMutate<T::AccountId>>::hold(
                 &HoldReason::AtsDeposit.into(),
                 &depositor,
-                base_deposit,
-            )?;
-            <T::Currency as FunHoldMutate<T::AccountId>>::hold(
-                &HoldReason::VersionDeposit.into(),
-                &depositor,
-                version_deposit,
+                total_deposit,
             )?;
 
             let now = frame_system::Pallet::<T>::block_number();
+
+            // Build deposits vec with single entry
+            let mut deposits = BoundedVec::new();
+            deposits
+                .try_push(DepositEntry {
+                    depositor: depositor.clone(),
+                    amount: total_deposit,
+                })
+                .expect("first entry always fits; qed");
 
             // Write storage
             AtsRegistry::<T>::insert(
                 ats_id,
                 AtsRecordOf::<T> {
                     owner: owner.clone(),
-                    depositor: depositor.clone(),
                     created_at: now,
                     version_count: 1,
-                    base_deposit,
+                    deposits,
                 },
             );
 
             AtsVersions::<T>::insert(
                 ats_id,
                 0u32,
-                VersionRecordOf::<T> {
+                VersionInfoOf::<T> {
                     commitment,
                     protocol_version,
-                    depositor,
                     created_at: now,
-                    deposit: version_deposit,
                 },
             );
 
@@ -553,7 +556,7 @@ pub mod pallet {
             // Hold version deposit from depositor
             let version_deposit = T::VersionDeposit::get();
             <T::Currency as FunHoldMutate<T::AccountId>>::hold(
-                &HoldReason::VersionDeposit.into(),
+                &HoldReason::AtsDeposit.into(),
                 &depositor,
                 version_deposit,
             )?;
@@ -563,14 +566,32 @@ pub mod pallet {
             AtsVersions::<T>::insert(
                 ats_id,
                 version,
-                VersionRecordOf::<T> {
+                VersionInfoOf::<T> {
                     commitment,
                     protocol_version,
-                    depositor,
                     created_at: now,
-                    deposit: version_deposit,
                 },
             );
+
+            // Update or insert deposit entry for this depositor
+            if let Some(entry) = record
+                .deposits
+                .iter_mut()
+                .find(|e| e.depositor == depositor)
+            {
+                entry.amount = entry
+                    .amount
+                    .checked_add(&version_deposit)
+                    .ok_or(Error::<T>::ArithmeticOverflow)?;
+            } else {
+                record
+                    .deposits
+                    .try_push(DepositEntry {
+                        depositor,
+                        amount: version_deposit,
+                    })
+                    .map_err(|_| Error::<T>::MaxDepositorsReached)?;
+            }
 
             record.version_count = new_count;
             AtsRegistry::<T>::insert(ats_id, record);
@@ -588,38 +609,28 @@ pub mod pallet {
 
         /// Core logic for revoking an ATS entry.
         ///
-        /// Deposits are returned to the recorded depositor per record, enabling
-        /// mixed-depositor scenarios (e.g., some versions paid by operator, some by owner).
+        /// Deposits are released per unique depositor (O(d) releases instead of O(v)),
+        /// and versions are batch-deleted via `clear_prefix`.
         fn do_revoke(
             owner: T::AccountId,
             ats_id: AtsId,
             operator: Option<T::AccountId>,
         ) -> DispatchResult {
-            let record = AtsRegistry::<T>::get(ats_id).ok_or(Error::<T>::AtsNotFound)?;
+            let record = AtsRegistry::<T>::take(ats_id).ok_or(Error::<T>::AtsNotFound)?;
             ensure!(record.owner == owner, Error::<T>::NotOwner);
 
-            // Release all version deposits to their respective depositors
-            for version in 0..record.version_count {
-                if let Some(version_record) = AtsVersions::<T>::take(ats_id, version) {
-                    <T::Currency as FunHoldMutate<T::AccountId>>::release(
-                        &HoldReason::VersionDeposit.into(),
-                        &version_record.depositor,
-                        version_record.deposit,
-                        Precision::Exact,
-                    )?;
-                }
+            // Release aggregated deposits to each depositor
+            for entry in &record.deposits {
+                <T::Currency as FunHoldMutate<T::AccountId>>::release(
+                    &HoldReason::AtsDeposit.into(),
+                    &entry.depositor,
+                    entry.amount,
+                    Precision::Exact,
+                )?;
             }
 
-            // Release base deposit to the ATS record's depositor
-            <T::Currency as FunHoldMutate<T::AccountId>>::release(
-                &HoldReason::AtsDeposit.into(),
-                &record.depositor,
-                record.base_deposit,
-                Precision::Exact,
-            )?;
-
-            // Remove from registry
-            AtsRegistry::<T>::remove(ats_id);
+            // Batch-delete all version records
+            let _ = AtsVersions::<T>::clear_prefix(ats_id, record.version_count, None);
 
             // Remove from owner index
             let mut ids = OwnerIndex::<T>::get(&owner);
