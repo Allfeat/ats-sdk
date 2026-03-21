@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.5...pallet-ats-v0.3.0) (2026-03-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* storage v2 — AtsRecord replaces depositor/base_deposit with deposits: BoundedVec<DepositEntry>, VersionRecord becomes VersionInfo (no depositor/deposit fields), HoldReason::VersionDeposit removed.
+
+### Features
+
+* aggregate deposits per depositor and slim version records ([93538b6](https://github.com/Allfeat/ats-sdk/commit/93538b658dcbf52faa2738abc7e40de88fdf74fc))
+
 ## [0.2.5](https://github.com/Allfeat/ats-sdk/compare/pallet-ats-v0.2.4...pallet-ats-v0.2.5) (2026-03-20)
 
 
