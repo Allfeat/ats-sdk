@@ -1,3 +1,4 @@
 [workspace]
 members = ["ats-sdk", "pallet-ats", "pallet-ats-primitives"]
+exclude = ["ats-proof-tools"]
 resolver = "2"

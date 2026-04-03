@@ -1,5 +1,6 @@
 {
   "ats-sdk": "0.1.2",
+  "ats-proof-tools": "0.1.0",
   "pallet-ats": "0.3.0",
   "pallet-ats-primitives": "0.1.1"
 }

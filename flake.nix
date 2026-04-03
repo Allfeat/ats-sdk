@@ -37,6 +37,8 @@
               pkg-config
               just
               subxt
+              trunk
+              binaryen
             ];
         };
       }
