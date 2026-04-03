@@ -87,7 +87,7 @@ pub fn App() -> impl IntoView {
                 class:active=move || active_tab.get() == Tab::Creator
                 on:click=move |_| active_tab.set(Tab::Creator)
             >
-                "Creator Proof"
+                "Prove Involvement"
             </button>
         </nav>
         <main class="content">

@@ -52,7 +52,7 @@ pub fn CreatorPage() -> impl IntoView {
 
     view! {
         <section class="page">
-            <h2>"Creator Proof"</h2>
+            <h2>"Prove Involvement"</h2>
             <p class="description">
                 "Verify that a specific creator is part of an ATS commitment. This enables selective disclosure — a creator can prove their involvement without revealing the other participants."
             </p>
