@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/Allfeat/ats-sdk/compare/ats-proof-tools-v0.1.2...ats-proof-tools-v0.1.3) (2026-04-03)
+
+
+### Bug Fixes
+
+* rename Creator Proof tab to Prove Involvement ([7104e7e](https://github.com/Allfeat/ats-sdk/commit/7104e7e23d81bba07c870502c400cb2f0760a50f))
+
 ## [0.1.2](https://github.com/Allfeat/ats-sdk/compare/ats-proof-tools-v0.1.1...ats-proof-tools-v0.1.2) (2026-04-03)
 
 
