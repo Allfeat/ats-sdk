@@ -20,7 +20,7 @@
     --border: #d5d5d5;
     --accent: #00b18c;
     --accent-muted: #a19f95;
-    --accent-yellow: #efc646;
+    --accent-yellow: #8a6b00;
     --danger: #e40014;
     --radius: 0.75rem;
     --radius-sm: 0.5rem;
@@ -115,11 +115,16 @@ body {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: var(--accent);
-    background: rgba(0, 177, 140, 0.1);
+    color: #007a5e;
+    background: rgba(0, 177, 140, 0.15);
     padding: 0.2rem 0.55rem;
     border-radius: 9999px;
     white-space: nowrap;
+}
+
+.dark .header-badge {
+    color: var(--accent);
+    background: rgba(0, 177, 140, 0.1);
 }
 
 .header-badge.badge-client {
@@ -347,8 +352,8 @@ body {
     gap: 0.5rem;
     padding: 0.75rem 1rem;
     margin-bottom: 1.5rem;
-    background: rgba(0, 177, 140, 0.06);
-    border: 1px solid rgba(0, 177, 140, 0.15);
+    background: rgba(0, 177, 140, 0.12);
+    border: 1px solid rgba(0, 177, 140, 0.25);
     border-radius: var(--radius-sm);
     font-size: 0.825rem;
     color: var(--fg-secondary);
@@ -356,8 +361,8 @@ body {
 }
 
 .dark .hint-box {
-    background: rgba(0, 177, 140, 0.04);
-    border-color: rgba(0, 177, 140, 0.1);
+    background: rgba(0, 177, 140, 0.10);
+    border-color: rgba(0, 177, 140, 0.18);
 }
 
 .hint-icon {
