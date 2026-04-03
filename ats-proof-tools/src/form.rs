@@ -1,6 +1,8 @@
-use ats_sdk::{Creator, Role};
+use ats_sdk::{Creator, MAX_CREATORS, Role};
 use leptos::prelude::*;
 use wasm_bindgen::JsCast;
+
+const ROLE_CHECK_ICON: &str = r#"<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>"#;
 
 fn empty_to_none(s: String) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
@@ -76,10 +78,10 @@ pub fn CreatorFormFields(signals: CreatorSignals) -> impl IntoView {
     view! {
         <div class="form-row">
             <div class="form-field">
-                <label>"Full Name"</label>
+                <label>"Full name"</label>
                 <input
                     type="text"
-                    placeholder="Full legal name"
+                    placeholder="Enter full name"
                     prop:value=move || signals.full_name.get()
                     on:input=move |ev| signals.full_name.set(event_target_value(&ev))
                 />
@@ -88,7 +90,7 @@ pub fn CreatorFormFields(signals: CreatorSignals) -> impl IntoView {
                 <label>"Email"</label>
                 <input
                     type="email"
-                    placeholder="email@example.com"
+                    placeholder="Enter email address"
                     prop:value=move || signals.email.get()
                     on:input=move |ev| signals.email.set(event_target_value(&ev))
                 />
@@ -101,42 +103,56 @@ pub fn CreatorFormFields(signals: CreatorSignals) -> impl IntoView {
                     class="role-card"
                     class:selected=move || signals.author.get()
                     on:click=move |_| signals.author.set(!signals.author.get_untracked())
-                >"Author"</button>
+                >
+                    <Show when=move || signals.author.get()><span class="role-check" inner_html=ROLE_CHECK_ICON /></Show>
+                    "Author"
+                </button>
                 <button
                     class="role-card"
                     class:selected=move || signals.composer.get()
                     on:click=move |_| signals.composer.set(!signals.composer.get_untracked())
-                >"Composer"</button>
+                >
+                    <Show when=move || signals.composer.get()><span class="role-check" inner_html=ROLE_CHECK_ICON /></Show>
+                    "Composer"
+                </button>
                 <button
                     class="role-card"
                     class:selected=move || signals.arranger.get()
                     on:click=move |_| signals.arranger.set(!signals.arranger.get_untracked())
-                >"Arranger"</button>
+                >
+                    <Show when=move || signals.arranger.get()><span class="role-check" inner_html=ROLE_CHECK_ICON /></Show>
+                    "Arranger"
+                </button>
                 <button
                     class="role-card"
                     class:selected=move || signals.adapter.get()
                     on:click=move |_| signals.adapter.set(!signals.adapter.get_untracked())
-                >"Adapter"</button>
+                >
+                    <Show when=move || signals.adapter.get()><span class="role-check" inner_html=ROLE_CHECK_ICON /></Show>
+                    "Adapter"
+                </button>
             </div>
         </div>
+        <hr class="creator-divider" />
+        <p class="creator-optional-subtitle">"Optional Information"</p>
         <div class="form-row">
             <div class="form-field">
                 <label>"IPI (optional)"</label>
                 <input
                     type="text"
-                    placeholder="1-11 digits"
                     prop:value=move || signals.ipi.get()
                     on:input=move |ev| signals.ipi.set(event_target_value(&ev))
                 />
+                <span class="field-hint">"Format: 1-11 digits"</span>
             </div>
             <div class="form-field">
                 <label>"ISNI (optional)"</label>
                 <input
                     type="text"
-                    placeholder="16 characters [0-9X]"
                     prop:value=move || signals.isni.get()
                     on:input=move |ev| signals.isni.set(event_target_value(&ev))
                 />
+                <span class="field-hint">"Format: 16 characters: 15 digits and one digit or X"</span>
             </div>
         </div>
     }
@@ -179,7 +195,7 @@ pub fn DataForm(
             <label>"Title"</label>
             <input
                 type="text"
-                placeholder="Title of the musical work"
+                placeholder="Enter the title of your work"
                 prop:value=move || title.get()
                 on:input=move |ev| title.set(event_target_value(&ev))
             />
@@ -188,7 +204,9 @@ pub fn DataForm(
         <div class="creators-section">
             <div class="section-header">
                 <h3>"Creators"</h3>
-                <button class="btn-add" on:click=add_creator>"+ Add Creator"</button>
+                <button class="btn-add" on:click=add_creator>
+                    {move || format!("Add Creator ({}/{})", creators.get().len(), MAX_CREATORS)}
+                </button>
             </div>
             <For
                 each=move || creators.get()
