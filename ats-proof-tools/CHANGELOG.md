@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/Allfeat/ats-sdk/compare/ats-proof-tools-v0.1.3...ats-proof-tools-v0.1.4) (2026-04-03)
+
+
+### Bug Fixes
+
+* align proof tools UI with widget design ([d28da2b](https://github.com/Allfeat/ats-sdk/commit/d28da2bac8cdf00d4eddc8040471d4867a5f6e70))
+
 ## [0.1.3](https://github.com/Allfeat/ats-sdk/compare/ats-proof-tools-v0.1.2...ats-proof-tools-v0.1.3) (2026-04-03)
 
 
