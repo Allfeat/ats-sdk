@@ -1,5 +1,8 @@
 //! Data types for the ATS SDK.
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use crate::hash::Hash;
 use crate::merkle::{MerkleProof, MerkleTree, NUM_LEAVES};
 

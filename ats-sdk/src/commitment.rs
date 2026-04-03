@@ -1,5 +1,6 @@
 //! Core commitment logic: generation, verification, and creator hashing.
 
+use alloc::vec::Vec;
 use sha2::{Digest, Sha256};
 
 use crate::canonical::{canonical_encode_creator, canonical_encode_title};
@@ -125,6 +126,8 @@ fn compute_commitment(media_hash: Hash, title: &str, merkle_root: Hash) -> Hash 
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use super::*;
     use crate::model::Role;
 

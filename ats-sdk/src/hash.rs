@@ -1,4 +1,4 @@
-use std::fmt;
+use core::fmt;
 
 /// A SHA-256 hash value (32 bytes).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,6 +63,8 @@ impl fmt::Display for Hash {
 
 #[cfg(test)]
 mod tests {
+    use alloc::{format, string::ToString};
+
     use super::*;
 
     #[test]

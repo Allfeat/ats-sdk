@@ -4,6 +4,16 @@
 //! timestamped, privacy-preserving commitments for musical works on the
 //! Allfeat blockchain.
 //!
+//! ## `no_std` support
+//!
+//! This crate is `no_std` compatible (requires a global allocator). Disable
+//! default features to use it in WASM runtimes or Substrate pallets:
+//!
+//! ```toml
+//! [dependencies]
+//! ats-sdk = { version = "0.1", default-features = false }
+//! ```
+//!
 //! ## Quick Start
 //!
 //! ```rust
@@ -32,9 +42,15 @@
 //! assert!(verify_creator_inclusion(&input.creators[0], &mproof, &proof.creators_merkle_root()));
 //! ```
 
+#![no_std]
 #![deny(unsafe_code)]
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
+
+#[cfg(feature = "std")]
+extern crate std;
+
+extern crate alloc;
 
 pub mod canonical;
 pub mod commitment;

@@ -1,5 +1,6 @@
 //! Error types for the ATS SDK.
 
+use alloc::string::String;
 use thiserror::Error;
 
 use crate::model::MAX_CREATORS;

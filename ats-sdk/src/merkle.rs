@@ -4,6 +4,7 @@
 //! - Unused leaves: padded with `SHA-256(0x00)` (zero leaf)
 //! - Internal nodes: `SHA-256(left_child || right_child)`
 
+use alloc::vec::Vec;
 use sha2::{Digest, Sha256};
 
 use crate::hash::Hash;
@@ -136,6 +137,8 @@ fn hash_pair(left: Hash, right: Hash) -> Hash {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
 
     fn make_leaf(val: u8) -> Hash {

@@ -6,6 +6,9 @@
 //! - Roles: deduplicated, sorted ascending by tag, `[count as u8][tag bytes…]`
 //! - Creator field order: `full_name`, `email`, `roles`, `ipi`, `isni`
 
+use alloc::string::String;
+use alloc::vec::Vec;
+
 use crate::model::{Creator, Role};
 
 /// Canonical byte encoding of a creator (for leaf hashing).
@@ -64,6 +67,8 @@ fn encode_roles(buf: &mut Vec<u8>, roles: &[Role]) {
 
 #[cfg(test)]
 mod tests {
+    use alloc::{string::ToString, vec, vec::Vec};
+
     use super::*;
     use crate::model::Role;
 

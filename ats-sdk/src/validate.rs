@@ -1,5 +1,7 @@
 //! Input validation for ATS data.
 
+use alloc::format;
+
 use crate::error::AtsError;
 use crate::model::{AtsInput, Creator, MAX_CREATORS};
 
@@ -82,6 +84,8 @@ fn validate_isni(isni: &str, index: usize) -> Result<(), AtsError> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::{string::String, vec, vec::Vec};
+
     use super::*;
     use crate::model::Role;
 

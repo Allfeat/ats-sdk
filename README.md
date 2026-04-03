@@ -19,6 +19,19 @@ Add to your `Cargo.toml`:
 ats-sdk = { path = "." }
 ```
 
+### `no_std` support
+
+The SDK is `no_std` compatible (requires a global allocator). This makes it usable in WASM runtimes, embedded systems, and Substrate pallets.
+
+To use it without the standard library, disable default features:
+
+```toml
+[dependencies]
+ats-sdk = { path = ".", default-features = false }
+```
+
+The `std` feature is enabled by default. When disabled, the crate depends only on `core` and `alloc`.
+
 ### Generate a commitment
 
 ```rust

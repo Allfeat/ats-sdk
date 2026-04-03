@@ -8,9 +8,13 @@ repository = "https://github.com/Allfeat/ats-sdk"
 keywords = ["blockchain", "timestamp", "merkle", "commitment", "allfeat"]
 categories = ["cryptography", "authentication"]
 
+[features]
+default = ["std"]
+std = ["sha2/std", "thiserror/std"]
+
 [dependencies]
-sha2 = "0.10"
-thiserror = "2"
+sha2 = { version = "0.10", default-features = false }
+thiserror = { version = "2", default-features = false }
 
 [dev-dependencies]
 hex-literal = "0.4"
