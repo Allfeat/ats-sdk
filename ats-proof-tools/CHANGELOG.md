@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/Allfeat/ats-sdk/compare/ats-proof-tools-v0.1.4...ats-proof-tools-v0.1.5) (2026-04-04)
+
+
+### Bug Fixes
+
+* align Prove Ownership UI with Protect widget design ([ae6911c](https://github.com/Allfeat/ats-sdk/commit/ae6911c1e73d0527fd3c10e4f9fbd653517f1b60))
+
 ## [0.1.4](https://github.com/Allfeat/ats-sdk/compare/ats-proof-tools-v0.1.3...ats-proof-tools-v0.1.4) (2026-04-03)
 
 

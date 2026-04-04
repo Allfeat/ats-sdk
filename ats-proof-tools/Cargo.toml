@@ -1,6 +1,6 @@
 [package]
 name = "ats-proof-tools"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 license = "MIT"
 description = "ATS Web — Proof of ownership and verification for the Allfeat Timestamp Service"
