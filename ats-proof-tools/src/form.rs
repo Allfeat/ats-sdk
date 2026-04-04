@@ -78,7 +78,7 @@ pub fn CreatorFormFields(signals: CreatorSignals) -> impl IntoView {
     view! {
         <div class="form-row">
             <div class="form-field">
-                <label>"Full name"</label>
+                <label class="label-required">"Full name"</label>
                 <input
                     type="text"
                     placeholder="Enter full name"
@@ -87,7 +87,7 @@ pub fn CreatorFormFields(signals: CreatorSignals) -> impl IntoView {
                 />
             </div>
             <div class="form-field">
-                <label>"Email"</label>
+                <label class="label-required">"Email"</label>
                 <input
                     type="email"
                     placeholder="Enter email address"
@@ -97,7 +97,7 @@ pub fn CreatorFormFields(signals: CreatorSignals) -> impl IntoView {
             </div>
         </div>
         <div class="form-field">
-            <label>"Roles"</label>
+            <label class="label-required">"Roles"</label>
             <div class="role-cards">
                 <button
                     class="role-card"
@@ -192,6 +192,14 @@ pub fn DataForm(
 
     view! {
         <div class="form-field">
+            <label class="label-required">"File"</label>
+            <input type="file" on:change=on_file_change />
+            <Show when=move || !media_name.get().is_empty()>
+                <span class="file-name">{move || media_name.get()}</span>
+            </Show>
+        </div>
+
+        <div class="form-field">
             <label>"Title"</label>
             <input
                 type="text"
@@ -202,12 +210,7 @@ pub fn DataForm(
         </div>
 
         <div class="creators-section">
-            <div class="section-header">
-                <h3>"Creators"</h3>
-                <button class="btn-add" on:click=add_creator>
-                    {move || format!("Add Creator ({}/{})", creators.get().len(), MAX_CREATORS)}
-                </button>
-            </div>
+            <h3>"Creators"</h3>
             <For
                 each=move || creators.get()
                 key=|c| c.id
@@ -216,14 +219,9 @@ pub fn DataForm(
                     view! { <CreatorEntry signals=c creators=creators id=id /> }
                 }
             />
-        </div>
-
-        <div class="form-field">
-            <label>"Media File"</label>
-            <input type="file" on:change=on_file_change />
-            <Show when=move || !media_name.get().is_empty()>
-                <span class="file-name">{move || media_name.get()}</span>
-            </Show>
+            <button class="btn-add-creator" on:click=add_creator>
+                {move || format!("Add Creator ({}/{})", creators.get().len(), MAX_CREATORS)}
+            </button>
         </div>
     }
 }
@@ -247,14 +245,18 @@ fn CreatorEntry(
         <div class="creator-entry">
             <div class="creator-header">
                 <span class="creator-index">"Creator #" {index}</span>
-                <button
-                    class="btn-remove"
-                    on:click=move |_| creators.update(|list| list.retain(|x| x.id != id))
-                >
-                    "Remove"
-                </button>
             </div>
             <CreatorFormFields signals=signals />
+            <Show when=move || { creators.get().len() > 1 }>
+                <div class="creator-remove-container">
+                    <button
+                        class="btn-remove-creator"
+                        on:click=move |_| creators.update(|list| list.retain(|x| x.id != id))
+                    >
+                        "Remove"
+                    </button>
+                </div>
+            </Show>
         </div>
     }
 }

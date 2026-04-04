@@ -83,7 +83,7 @@ pub fn VerifyPage() -> impl IntoView {
 
     view! {
         <section class="page">
-            <h2>"Prove Ownership"</h2>
+            <h2>"Prove Ownership of a work"</h2>
             <p class="description">
                 "Prove you hold the original data behind an on-chain ATS commitment. Fill in the fields from your certificate, provide the original media file, and the tool will reconstruct the commitment locally to verify it."
             </p>
@@ -95,7 +95,7 @@ pub fn VerifyPage() -> impl IntoView {
             <h3>"On-chain data"</h3>
             <div class="form-row form-row-onchain">
                 <div class="form-field">
-                    <label>"Commitment Hash (hex)"</label>
+                    <label class="label-required">"Commitment"</label>
                     <input
                         type="text"
                         placeholder="64 hex characters"

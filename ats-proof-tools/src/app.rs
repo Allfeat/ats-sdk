@@ -81,7 +81,7 @@ pub fn App() -> impl IntoView {
                 class:active=move || active_tab.get() == Tab::Ownership
                 on:click=move |_| active_tab.set(Tab::Ownership)
             >
-                "Prove Ownership"
+                "Prove Ownership of a work"
             </button>
             <button
                 class:active=move || active_tab.get() == Tab::Creator
