@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/Allfeat/ats-sdk/compare/ats-sdk-v0.1.2...ats-sdk-v0.2.0) (2026-04-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* Substrate dependency versions are incompatible with previous Polkadot SDK releases.
+
+### Features
+
+* bump Substrate dependencies to latest versions ([aac8725](https://github.com/Allfeat/ats-sdk/commit/aac8725c24b2053bc55f2c3bdf6d7c4d528fb8ff))
+
 ## [0.1.2](https://github.com/Allfeat/ats-sdk/compare/ats-sdk-v0.1.1...ats-sdk-v0.1.2) (2026-04-03)
 
 
