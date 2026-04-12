@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/Allfeat/ats-sdk/compare/ats-sdk-v0.1.2...ats-sdk-v0.1.3) (2026-04-12)
+
+
+### Bug Fixes
+
+* replace deprecated GenericArray::as_slice in test ([5ac02dc](https://github.com/Allfeat/ats-sdk/commit/5ac02dc61a4b9c972861fd36c6e9808228f38f84))
+
 ## [0.1.2](https://github.com/Allfeat/ats-sdk/compare/ats-sdk-v0.1.1...ats-sdk-v0.1.2) (2026-04-03)
 
 
