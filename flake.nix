@@ -27,19 +27,17 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          packages =
-            with pkgs;
-            [
-              (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
-              clang
-              protobuf
-              openssl
-              pkg-config
-              just
-              subxt
-              trunk
-              binaryen
-            ];
+          packages = with pkgs; [
+            (rust-bin.fromRustupToolchainFile ./rust-toolchain.toml)
+            clang
+            protobuf
+            openssl
+            pkg-config
+            just
+            subxt
+            trunk
+            binaryen
+          ];
         };
       }
     );
