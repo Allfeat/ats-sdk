@@ -9,19 +9,19 @@ description = "Substrate pallet for the Allfeat Timestamp Service (ATS)"
 [dependencies]
 codec = { package = "parity-scale-codec", version = "3.7", default-features = false, features = ["derive", "max-encoded-len"] }
 scale-info = { version = "2.11", default-features = false, features = ["derive"] }
-frame-support = { version = "45.0", default-features = false }
-frame-system = { version = "45.0", default-features = false }
-frame-benchmarking = { version = "45.0", default-features = false, optional = true }
-sp-runtime = { version = "45.0", default-features = false }
-sp-core = { version = "39.0", default-features = false, optional = true }
-sp-io = { version = "44.0", default-features = false, optional = true }
+frame-support = { version = "46.0.0", default-features = false }
+frame-system = { version = "46.0.0", default-features = false }
+frame-benchmarking = { version = "46.0.0", default-features = false, optional = true }
+sp-runtime = { version = "46.0.0", default-features = false }
+sp-core = { version = "40.0.0", default-features = false, optional = true }
+sp-io = { version = "45.0.0", default-features = false, optional = true }
 log = { version = "0.4", default-features = false }
 pallet-ats-primitives = { path = "../pallet-ats-primitives", version = "0.1.0", default-features = false }
 
 [dev-dependencies]
-sp-io = { version = "44.0", default-features = false, features = ["std"] }
-sp-runtime = { version = "45.0", default-features = false, features = ["std"] }
-pallet-balances = { version = "46.0", default-features = false, features = ["std"] }
+sp-io = { version = "45.0.0", default-features = false, features = ["std"] }
+sp-runtime = { version = "46.0.0", default-features = false, features = ["std"] }
+pallet-balances = { version = "47.0.0", default-features = false, features = ["std"] }
 
 [features]
 default = ["std"]
