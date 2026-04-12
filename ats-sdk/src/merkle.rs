@@ -149,7 +149,7 @@ mod tests {
     fn zero_leaf_is_sha256_of_0x00() {
         let z = zero_leaf();
         let expected = Sha256::digest([0x00]);
-        assert_eq!(z.as_bytes(), expected.as_slice());
+        assert_eq!(z.as_bytes(), &expected[..]);
     }
 
     #[test]
