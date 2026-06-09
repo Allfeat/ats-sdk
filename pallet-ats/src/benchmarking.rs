@@ -1,14 +1,10 @@
 use super::*;
-use frame_benchmarking::v2::*;
-use frame_system::RawOrigin;
+use frame::benchmarking::prelude::*;
 
 #[benchmarks]
 mod benchmarks {
     use super::*;
-    use codec::Encode;
-    use frame_support::traits::Get;
-    use frame_support::traits::fungible::Mutate as _;
-    use sp_runtime::traits::Bounded;
+    use fungible::Mutate as _;
 
     /// Benchmark the `create` extrinsic with `n` existing ATS entries for the caller.
     #[benchmark]

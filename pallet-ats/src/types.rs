@@ -1,6 +1,4 @@
-use codec::{Decode, Encode, MaxEncodedLen};
-use frame_support::pallet_prelude::{BoundedVec, ConstU32};
-use scale_info::TypeInfo;
+use frame::prelude::*;
 
 /// Maximum number of unique depositors per ATS entry.
 ///

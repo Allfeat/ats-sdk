@@ -1,4 +1,4 @@
-use frame_support::weights::Weight;
+use frame::weights_prelude::*;
 
 /// Weight information for pallet-ats extrinsics.
 pub trait WeightInfo {

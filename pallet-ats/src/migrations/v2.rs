@@ -11,12 +11,11 @@
 use crate::*;
 use alloc::vec::Vec;
 use codec::{Decode, Encode};
-use frame_support::{pallet_prelude::*, traits::OnRuntimeUpgrade, weights::Weight};
-use frame_system::pallet_prelude::BlockNumberFor;
-use sp_runtime::Saturating;
+use frame::deps::frame_support;
+use frame::prelude::*;
 
 #[cfg(feature = "try-runtime")]
-use frame_support::ensure;
+use frame::deps::sp_runtime;
 
 /// V1 ATS record format (with `depositor` and `base_deposit`).
 #[derive(Encode, Decode)]

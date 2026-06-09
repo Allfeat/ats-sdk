@@ -1,9 +1,9 @@
 use crate::mock::*;
 use crate::*;
 use codec::Encode;
-use frame_support::pallet_prelude::StorageVersion;
-use frame_support::traits::GetStorageVersion;
-use frame_support::{assert_noop, assert_ok};
+use frame::deps::{frame_support, sp_runtime};
+use frame::testing_prelude::*;
+use frame::traits::GetStorageVersion;
 
 fn commitment(byte: u8) -> [u8; 32] {
     [byte; 32]

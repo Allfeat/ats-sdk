@@ -1,10 +1,8 @@
 use crate as pallet_ats;
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode};
-use frame_support::{construct_runtime, derive_impl, parameter_types};
-use scale_info::TypeInfo;
-use sp_runtime::BuildStorage;
-use sp_runtime::traits::{IdentifyAccount, Verify};
+use frame::testing_prelude::*;
+use frame::traits::{Lazy, Verify};
 
 pub const ALICE: u64 = 1;
 pub const BOB: u64 = 2;
@@ -42,7 +40,7 @@ pub struct TestSignature {
 impl Verify for TestSignature {
     type Signer = TestSigner;
 
-    fn verify<L: sp_runtime::traits::Lazy<[u8]>>(&self, mut msg: L, signer: &u64) -> bool {
+    fn verify<L: Lazy<[u8]>>(&self, mut msg: L, signer: &u64) -> bool {
         self.signer == *signer && self.payload == msg.get()
     }
 }
@@ -69,7 +67,7 @@ construct_runtime!(
 impl frame_system::Config for Test {
     type Block = frame_system::mocking::MockBlock<Test>;
     type AccountId = u64;
-    type Lookup = sp_runtime::traits::IdentityLookup<u64>;
+    type Lookup = IdentityLookup<u64>;
     type AccountData = pallet_balances::AccountData<u64>;
 }
 
@@ -117,7 +115,7 @@ impl pallet_ats::Config for Test {
 }
 
 /// Build test externalities with funded accounts.
-pub fn new_test_ext() -> sp_io::TestExternalities {
+pub fn new_test_ext() -> TestState {
     let mut storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -129,7 +127,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     .assimilate_storage(&mut storage)
     .unwrap();
 
-    let mut ext = sp_io::TestExternalities::from(storage);
+    let mut ext = TestState::from(storage);
     ext.execute_with(|| System::set_block_number(1));
     ext
 }

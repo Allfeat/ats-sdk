@@ -19,6 +19,9 @@
 
 extern crate alloc;
 
+#[cfg(feature = "runtime-benchmarks")]
+use frame::deps::{sp_io, sp_runtime};
+
 mod types;
 pub use types::*;
 
@@ -83,18 +86,12 @@ impl BenchmarkHelper<sp_runtime::MultiSignature, sp_runtime::AccountId32> for ()
 
 pub use pallet::*;
 
-#[frame_support::pallet]
+#[frame::pallet]
 pub mod pallet {
     use super::*;
-    use codec::Encode;
-    use frame_support::{
-        pallet_prelude::*,
-        traits::fungible::{self, hold::Mutate as FunHoldMutate},
-        traits::tokens::Precision,
-    };
-    use frame_system::pallet_prelude::*;
-    use sp_runtime::traits::CheckedAdd;
-    use sp_runtime::traits::{IdentifyAccount, Verify};
+    use frame::prelude::*;
+    use frame::traits::Verify;
+    use fungible::hold::Mutate as FunHoldMutate;
 
     /// Current storage version.
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);

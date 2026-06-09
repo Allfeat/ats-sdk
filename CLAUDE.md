@@ -59,7 +59,7 @@ commitment    = SHA-256(version || media_hash || canonical(title) || merkle_root
 
 ### pallet-ats
 
-Substrate pallet (`no_std`). Dependencies: `frame-support` v45, `frame-system` v45, `pallet-balances` v46 (dev), matching the Allfeat runtime.
+Substrate pallet (`no_std`). FRAME dependencies are sourced through the `frame` umbrella crate (`polkadot-sdk-frame` 0.15.0, matching `polkadot-sdk` 2603 used by the Allfeat parachain migration). Code uses the `frame::prelude` / `frame::testing_prelude` / `frame::benchmarking::prelude` / `frame::weights_prelude` preludes, falling back to `frame::traits` and `frame::deps` for items not re-exported by a prelude. `codec`, `scale-info`, and `log` remain direct deps; `pallet-balances` is a dev-dependency for the mock runtime. The pallet's `std` feature also enables `frame/runtime` (FRAME's `std` requires its `runtime` module's api crates).
 
 #### Storage
 
